@@ -1,0 +1,588 @@
+import {
+  ChevronRight,
+  Droplets,
+  Eraser,
+  Grid3x3,
+  ImageIcon,
+  Layers,
+  Loader2,
+  Maximize2,
+  MessageSquareText,
+  Palette,
+  Pencil,
+  PenTool,
+  Smile,
+  Sparkles,
+  Undo2,
+  Upload,
+  Wand2,
+  X,
+  type LucideIcon
+} from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { directorAugmentCost, UPSCALE_ANLAS_COST } from '@shared/anlas'
+import type { MessageId } from '@shared/i18n'
+import { EMOTIONS, type DirectorMethod } from '@shared/types'
+import { useT } from '../lib/i18n'
+import { useArtistTagsStore } from '../stores/artist-tags-store'
+import { openInDirector, useDirectorStore } from '../stores/director-store'
+import { useGenerationStore } from '../stores/generation-store'
+import { useLayoutStore } from '../stores/layout-store'
+import { cn } from '../lib/utils'
+import { Button } from './ui/button'
+import { Input } from './ui/input'
+import { isLeavingDropZone, useDragEndCleanup } from '../lib/drop-zone'
+import { DropOverlay } from './drop-overlay'
+import { MosaicEditor } from './mosaic-editor'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
+import { Slider } from './ui/slider'
+
+type Opt = 'colorize' | 'emotion' | undefined
+const TOOLS: {
+  method: DirectorMethod
+  label: MessageId
+  desc: MessageId
+  icon: typeof Eraser
+  color: string
+  opt?: Opt
+}[] = [
+  {
+    method: 'bg-removal',
+    label: 'ui.removeBg',
+    desc: 'ui.makeTheBackgroundTransparentKeepingOnlyTheCharacter',
+    icon: Eraser,
+    color: 'text-rose-400'
+  },
+  {
+    method: 'lineart',
+    label: 'ui.lineArt',
+    desc: 'ui.extractLineArt',
+    icon: PenTool,
+    color: 'text-sky-400'
+  },
+  {
+    method: 'sketch',
+    label: 'ui.sketch',
+    desc: 'ui.convertToSketchStyle',
+    icon: Pencil,
+    color: 'text-amber-400'
+  },
+  {
+    method: 'colorize',
+    label: 'ui.colorize',
+    desc: 'ui.colorLineArtGuidedByPrompt',
+    icon: Droplets,
+    color: 'text-emerald-400',
+    opt: 'colorize'
+  },
+  {
+    method: 'emotion',
+    label: 'ui.changeExpression',
+    desc: 'ui.replaceTheFacialExpression',
+    icon: Smile,
+    color: 'text-fuchsia-400',
+    opt: 'emotion'
+  },
+  {
+    method: 'declutter',
+    label: 'ui.declutter.6851509',
+    desc: 'ui.removeWatermarksAndClutter',
+    icon: Sparkles,
+    color: 'text-violet-400'
+  },
+  {
+    method: 'declutter-keep-bubbles',
+    label: 'ui.declutterKeepBubbles',
+    desc: 'ui.declutterWhileKeepingSpeechBubbles',
+    icon: MessageSquareText,
+    color: 'text-violet-300'
+  }
+]
+
+export function DirectorMode(): React.JSX.Element {
+  const t = useT()
+  const stack = useDirectorStore((s) => s.stack)
+  const loading = useDirectorStore((s) => s.loading)
+  const error = useDirectorStore((s) => s.error)
+  const setSource = useDirectorStore((s) => s.setSource)
+  const applyLocal = useDirectorStore((s) => s.applyLocal)
+  const undo = useDirectorStore((s) => s.undo)
+  const clear = useDirectorStore((s) => s.clear)
+  // 모자이크 편집기 — 열 때의 이미지·해상도 고정 (편집 중 스택 변화와 무관)
+  const [mosaic, setMosaic] = useState<{ base64: string; width: number; height: number } | null>(
+    null
+  )
+
+  const source = stack.length > 0 ? stack[stack.length - 1] : null
+  const isResult = stack.length > 1 // 툴이 한 번 이상 적용된 상태
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [dragOver, setDragOver] = useState(false)
+  useDragEndCleanup(() => setDragOver(false))
+
+  // 예상 Anlas — 업스케일과 augment-image 디렉터 툴은 서로 다른 공식 계산식을 쓴다.
+  const tier = useGenerationStore((s) => s.subscriptionTier)
+  const [toolCosts, setToolCosts] = useState<{
+    source: string
+    upscale: number
+    backgroundRemoval: number
+    standardAugment: number
+  } | null>(null)
+  useEffect(() => {
+    if (!source) return
+    let alive = true
+    void imageDims(source).then(({ width, height }) => {
+      if (!alive) return
+      const isOpus = tier === 'opus'
+      setToolCosts({
+        source,
+        upscale: UPSCALE_ANLAS_COST,
+        backgroundRemoval: directorAugmentCost('bg-removal', width, height, isOpus),
+        standardAugment: directorAugmentCost('lineart', width, height, isOpus)
+      })
+    })
+    return () => {
+      alive = false
+    }
+  }, [source, tier])
+  const currentToolCosts = toolCosts?.source === source ? toolCosts : null
+
+  // i2i/인페인트로 보내고 메인 페이지로 전환 (현재 이미지 사용)
+  async function sendToMain(mode: 'i2i' | 'inpaint'): Promise<void> {
+    if (!source) return
+    const { width, height } = await imageDims(source)
+    if (mode === 'i2i') {
+      useGenerationStore.getState().setSource({ imageBase64: source, width, height })
+    } else {
+      useGenerationStore.getState().startInpaintFromImage(source, width, height)
+    }
+    useLayoutStore.getState().setCenterMode('main')
+  }
+
+  function loadFile(file: File): void {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const result = e.target?.result as string
+      setSource(result.replace(/^data:[^,]+,/, ''))
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const shown = source ? `data:image/png;base64,${source}` : null
+
+  return (
+    <div className="flex min-h-0 flex-1 gap-3">
+      {/* 캔버스 */}
+      <div
+        className={cn(
+          'relative flex min-w-0 flex-1 items-center justify-center overflow-hidden rounded-xl border bg-surface',
+          dragOver ? 'border-accent' : 'border-line'
+        )}
+        onDragOver={(e) => {
+          // 외부 파일 또는 히스토리 썸네일(내부 드래그) 둘 다 허용
+          if (
+            e.dataTransfer.types.includes('Files') ||
+            e.dataTransfer.types.includes('nais/file-path')
+          ) {
+            e.preventDefault()
+            setDragOver(true)
+          }
+        }}
+        onDragLeave={(e) => {
+          if (isLeavingDropZone(e)) setDragOver(false)
+        }}
+        onDrop={(e) => {
+          e.preventDefault()
+          setDragOver(false)
+          const internalPath = e.dataTransfer.getData('nais/file-path')
+          if (internalPath) {
+            void openInDirector(internalPath)
+            return
+          }
+          const file = e.dataTransfer.files?.[0]
+          if (file?.type.startsWith('image/')) loadFile(file)
+        }}
+      >
+        {shown ? (
+          <>
+            <img
+              src={shown}
+              className="h-full w-full object-contain p-2"
+              draggable={false}
+              alt=""
+            />
+            {isResult && (
+              <span className="absolute left-3 top-3 rounded-full bg-accent px-2.5 py-0.5 text-[11px] font-medium text-white">
+                {t('ui.result')}
+              </span>
+            )}
+            {/* 하단 컨트롤 */}
+            <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full border border-line bg-paper/85 p-1 backdrop-blur">
+              <Button
+                size="icon"
+                variant="ghost"
+                className="rounded-full"
+                title={t('ui.erase')}
+                onClick={clear}
+              >
+                <X size={16} />
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="rounded-full"
+                title={t('ui.undoPreviousImage')}
+                disabled={!isResult}
+                onClick={undo}
+              >
+                <Undo2 size={16} />
+              </Button>
+              <div className="mx-0.5 h-5 w-px bg-line" />
+              <Button
+                size="icon"
+                variant="ghost"
+                className="rounded-full"
+                title={t('ui.openAnotherImage')}
+                onClick={() => fileRef.current?.click()}
+              >
+                <Upload size={16} />
+              </Button>
+            </div>
+          </>
+        ) : (
+          <div
+            // 점선 박스를 실제 드롭 가능 영역(캔버스 전체)과 일치시킴 — 여백만큼 작아 보이던 문제 (B10)
+            className={cn(
+              'absolute inset-2 flex cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed p-8 text-faint transition-colors',
+              dragOver ? 'border-accent text-accent' : 'border-line'
+            )}
+            onClick={() => fileRef.current?.click()}
+          >
+            <Upload size={44} strokeWidth={1.2} className="opacity-40" />
+            <p className="text-[14px] font-medium">{t('ui.openOrDragAnImageHere')}</p>
+            <p className="text-[12px] opacity-60">
+              {t('ui.youCanAlsoRightClickAHistoryImageToSendItHere')}
+            </p>
+          </div>
+        )}
+
+        {loading && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black/45 text-white backdrop-blur-sm">
+            <Loader2 size={40} className="animate-spin" />
+            <span className="text-[13px]">{t('ui.processing')}</span>
+          </div>
+        )}
+
+        {/* 이미지가 이미 있을 때의 드롭 안내 (없을 땐 점선 박스가 하이라이트됨) */}
+        <DropOverlay
+          show={dragOver && !!shown}
+          icon={Wand2}
+          label={t('ui.dropHereToReplaceThisImage')}
+          sub={t('ui.openANewImageInDirectorTools')}
+        />
+
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            if (f) loadFile(f)
+            e.target.value = ''
+          }}
+        />
+      </div>
+
+      {/* 툴 패널 */}
+      <div className="flex w-[320px] shrink-0 flex-col overflow-hidden rounded-xl border border-line bg-surface">
+        <div className="flex items-center gap-2 border-b border-line px-4 py-3">
+          <Wand2 size={16} className="text-accent" />
+          <h2 className="text-[14px] font-semibold">{t('ui.directorTools')}</h2>
+        </div>
+        <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto p-3 no-scrollbar">
+          {error && (
+            <p className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-[12px] text-danger">
+              {error}
+            </p>
+          )}
+          {/* i2i·인페인트 — 여기서 시작하면 메인 페이지로 이동 */}
+          <SendToMainCard
+            icon={ImageIcon}
+            color="text-indigo-400"
+            label="I2I"
+            desc={t('ui.img2imgWithThisImageGoesToMain')}
+            disabled={!source}
+            onRun={() => sendToMain('i2i')}
+          />
+          <SendToMainCard
+            icon={Layers}
+            color="text-pink-400"
+            label={t('ui.inpaint')}
+            desc={t('ui.paintAMaskToRegenerateAnAreaGoesToMain')}
+            disabled={!source}
+            onRun={() => sendToMain('inpaint')}
+          />
+          <div className="!my-3 h-px bg-line" />
+          <UpscaleCard disabled={!source || loading} cost={currentToolCosts?.upscale ?? null} />
+          {TOOLS.map((tool) => (
+            <ToolCard
+              key={tool.method}
+              tool={tool}
+              disabled={!source || loading}
+              cost={
+                tool.method === 'bg-removal'
+                  ? (currentToolCosts?.backgroundRemoval ?? null)
+                  : (currentToolCosts?.standardAugment ?? null)
+              }
+            />
+          ))}
+          <div className="!my-3 h-px bg-line" />
+          {/* 로컬 툴 — API/Anlas 안 씀 */}
+          <SendToMainCard
+            icon={Grid3x3}
+            color="text-orange-400"
+            label={t('ui.mosaic')}
+            desc={t('ui.paintWithABrushToPixelateLocalFree')}
+            disabled={!source || loading}
+            onRun={() => {
+              if (!source) return
+              void imageDims(source).then((dims) => setMosaic({ base64: source, ...dims }))
+            }}
+          />
+          {/* Anlas는 안 쓰지만 외부(HF Space) 호출 — 인터넷 필요 */}
+          <SendToMainCard
+            icon={Palette}
+            color="text-teal-400"
+            label={t('ui.artistTagAnalysis')}
+            desc={t('ui.extractArtistTagsWithASimilarStyleKaloscopeFree')}
+            disabled={!source || loading}
+            onRun={() => {
+              if (source) void useArtistTagsStore.getState().show({ base64: source })
+            }}
+          />
+        </div>
+      </div>
+
+      {mosaic && (
+        <MosaicEditor
+          imageBase64={mosaic.base64}
+          width={mosaic.width}
+          height={mosaic.height}
+          onConfirm={(b64) => {
+            setMosaic(null)
+            void applyLocal(b64, 'mosaic')
+          }}
+          onCancel={() => setMosaic(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+/** 예상 Anlas 칩 — 0=무료(초록), >0=빨간 -N */
+function CostChip({ cost }: { cost: number | null }): React.JSX.Element | null {
+  const t = useT()
+  if (cost == null) return null
+  return cost === 0 ? (
+    <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-500">
+      {t('ui.free')}
+    </span>
+  ) : (
+    <span className="shrink-0 rounded bg-danger/15 px-1.5 py-0.5 font-mono text-[10px] font-medium text-danger">
+      -{cost}
+    </span>
+  )
+}
+
+function ToolCard({
+  tool,
+  disabled,
+  cost
+}: {
+  tool: (typeof TOOLS)[number]
+  disabled: boolean
+  cost: number | null
+}): React.JSX.Element {
+  const t = useT()
+  const run = useDirectorStore((s) => s.run)
+  // 옵션은 카드별 로컬 state — 툴끼리 값 공유 안 되게
+  const [emotion, setEmotion] = useState('neutral')
+  const [prompt, setPrompt] = useState('')
+  const [defry, setDefry] = useState(0)
+  const Icon = tool.icon
+
+  function onRun(): void {
+    if (tool.opt === 'emotion') {
+      void run(tool.method, { prompt: `${emotion};;${prompt}`, defry })
+    } else if (tool.opt === 'colorize') {
+      void run(tool.method, { prompt, defry })
+    } else {
+      void run(tool.method)
+    }
+  }
+
+  const hasOpt = tool.opt != null
+  // 옵션 위젯은 클릭해도 실행 안 되게 (카드 클릭 실행과 분리)
+  const stop = (e: React.MouseEvent): void => e.stopPropagation()
+
+  return (
+    <div
+      role="button"
+      aria-disabled={disabled}
+      onClick={() => !disabled && onRun()}
+      className={cn(
+        'group rounded-xl border border-line bg-surface-2/40 p-3 transition-colors',
+        disabled ? 'opacity-60' : 'cursor-pointer hover:bg-surface-2/70'
+      )}
+    >
+      <div className={cn('flex items-center gap-2.5', hasOpt && 'mb-2')}>
+        <Icon size={18} className={tool.color} />
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] font-medium text-ink">{t(tool.label)}</p>
+          <p className="truncate text-[11px] text-faint">{t(tool.desc)}</p>
+        </div>
+        <CostChip cost={cost} />
+        <ChevronRight
+          size={16}
+          className="shrink-0 text-faint transition-colors group-hover:text-accent"
+        />
+      </div>
+
+      {tool.opt === 'emotion' && (
+        <div className="grid gap-1.5" onClick={stop}>
+          <Select value={emotion} onValueChange={setEmotion}>
+            <SelectTrigger className="h-8 w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {EMOTIONS.map((e) => (
+                <SelectItem key={e} value={e}>
+                  {e}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Input
+            className="h-8"
+            placeholder={t('ui.additionalPromptOptional')}
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+          />
+          <DefryRow value={defry} onChange={setDefry} />
+        </div>
+      )}
+      {tool.opt === 'colorize' && (
+        <div className="grid gap-1.5" onClick={stop}>
+          <Input
+            className="h-8"
+            placeholder={t('ui.colorGuidancePromptOptional')}
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+          />
+          <DefryRow value={defry} onChange={setDefry} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** V5 Curated 2x 업스케일 카드 (결과 자동 체이닝) */
+function UpscaleCard({
+  disabled,
+  cost
+}: {
+  disabled: boolean
+  cost: number | null
+}): React.JSX.Element {
+  const t = useT()
+  const upscale = useDirectorStore((s) => s.upscale)
+  return (
+    <div
+      role="button"
+      aria-disabled={disabled}
+      onClick={() => !disabled && void upscale()}
+      className={cn(
+        'group rounded-xl border border-line bg-surface-2/40 p-3 transition-colors',
+        disabled ? 'opacity-60' : 'cursor-pointer hover:bg-surface-2/70'
+      )}
+    >
+      <div className="flex items-center gap-2.5">
+        <Maximize2 size={18} className="text-cyan-400" />
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] font-medium text-ink">{t('ui.upscale')}</p>
+          <p className="truncate text-[11px] text-faint">{t('ui.upscaleV5Description')}</p>
+        </div>
+        <CostChip cost={cost} />
+        <ChevronRight
+          size={16}
+          className="shrink-0 text-faint transition-colors group-hover:text-accent"
+        />
+      </div>
+    </div>
+  )
+}
+
+/** base64 이미지의 실제 픽셀 크기 */
+function imageDims(base64: string): Promise<{ width: number; height: number }> {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight })
+    img.onerror = () => resolve({ width: 0, height: 0 })
+    img.src = `data:image/png;base64,${base64}`
+  })
+}
+
+/** i2i·인페인트 진입 카드 (메인 페이지로 이동) */
+function SendToMainCard({
+  icon: Icon,
+  color,
+  label,
+  desc,
+  disabled,
+  onRun
+}: {
+  icon: LucideIcon
+  color: string
+  label: string
+  desc: string
+  disabled: boolean
+  onRun: () => void
+}): React.JSX.Element {
+  return (
+    <div
+      role="button"
+      aria-disabled={disabled}
+      onClick={() => !disabled && onRun()}
+      className={cn(
+        'group flex items-center gap-2.5 rounded-xl border border-line bg-surface-2/40 p-3 transition-colors',
+        disabled ? 'opacity-60' : 'cursor-pointer hover:bg-surface-2/70'
+      )}
+    >
+      <Icon size={18} className={color} />
+      <div className="min-w-0 flex-1">
+        <p className="text-[13px] font-medium text-ink">{label}</p>
+        <p className="truncate text-[11px] text-faint">{desc}</p>
+      </div>
+      <ChevronRight
+        size={16}
+        className="shrink-0 text-faint transition-colors group-hover:text-accent"
+      />
+    </div>
+  )
+}
+
+function DefryRow({
+  value,
+  onChange
+}: {
+  value: number
+  onChange: (v: number) => void
+}): React.JSX.Element {
+  const t = useT()
+  return (
+    <div className="flex items-center gap-2 px-0.5">
+      <span className="w-16 shrink-0 text-[11px] text-muted">{t('ui.defryValue', value)}</span>
+      <Slider min={0} max={5} step={1} value={[value]} onValueChange={([v]) => onChange(v)} />
+    </div>
+  )
+}

@@ -1,0 +1,33 @@
+appId: com.cotton100.pixais
+productName: PixaiClackHelper
+# Keep the NSIS directory identity as well as the executable stable across the rename.
+executableName: PixAIS
+directories:
+  buildResources: build
+  output: dist
+files:
+  - out/**
+  - resources/**
+  - LICENSE
+  - PIXAIS.md
+  - package.json
+asarUnpack:
+  - resources/**
+win:
+  executableName: PixAIS
+  icon: build/pixais.png
+  target:
+    - nsis
+nsis:
+  artifactName: PixaiClackHelper-${version}-setup.${ext}
+  shortcutName: PixaiClackHelper
+  uninstallDisplayName: PixaiClackHelper
+  createDesktopShortcut: always
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+npmRebuild: false
+publish:
+  provider: github
+  owner: cotton100
+  repo: PixaiClackHelper

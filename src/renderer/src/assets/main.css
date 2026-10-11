@@ -1,0 +1,138 @@
+@import 'tailwindcss';
+
+/* WHIMS 디자인 시스템 이식: 다크 변형은 [data-theme='dark'] 기준 */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+@font-face {
+  font-family: 'Pretendard Variable';
+  src: url('./fonts/PretendardVariable.woff2') format('woff2-variations');
+  font-weight: 45 920;
+  font-display: swap;
+}
+
+/* NAIS3 기본 테마 (무채색) — 프리셋 적용 전 초기 페인트용 기본값 */
+:root {
+  --paper: #fafafa;
+  --surface: #f1f1f2;
+  --surface-2: #e8e8ea;
+  --ink: #19191b;
+  --muted: #6d6d73;
+  --faint: #9c9ca1;
+  --line: #e3e3e6;
+  --accent: #c2610a;
+  --accent-soft: rgba(194, 97, 10, 0.13);
+  --danger: #a85a52;
+  --font-ui:
+    'Pretendard Variable', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI Variable',
+    'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  /* 한글은 mono 폰트에 없어 Pretendard로 폴백 (Windows 기본 폴백 글꼴이 깨져 보이는 문제 방지).
+     한자 폴백은 언어별로 JS가 --font-ui/--font-mono를 덮어쓴다. */
+  --font-mono:
+    'JetBrains Mono', Consolas, ui-monospace, 'Pretendard Variable', 'Apple SD Gothic Neo',
+    'Malgun Gothic', monospace;
+  --radius: 8px;
+  --ui-size: 15px;
+  --ui-scale: calc(15 / 14);
+}
+
+[data-theme='dark'] {
+  --paper: #0f0f10;
+  --surface: #161618;
+  --surface-2: #1e1e21;
+  --ink: #e9e9ea;
+  --muted: #8e8e94;
+  --faint: #5d5d63;
+  --line: #252528;
+  --accent: #eb9550;
+  --accent-soft: rgba(235, 149, 80, 0.14);
+  --danger: #c47a72;
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-danger: var(--danger);
+  --font-sans: var(--font-ui);
+  --font-mono: var(--font-mono);
+  --radius-DEFAULT: var(--radius);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-ui);
+  background: var(--paper);
+  color: var(--ink);
+  font-size: var(--ui-size);
+  overflow: hidden;
+  user-select: none;
+}
+
+/* UI 크기 배율 — 하드코딩된 픽셀 텍스트 크기를 --ui-scale로 일괄 조정 (WHIMS 패턴) */
+[class*='text-[10px]'] {
+  font-size: calc(10px * var(--ui-scale)) !important;
+}
+[class*='text-[10.5px]'] {
+  font-size: calc(10.5px * var(--ui-scale)) !important;
+}
+[class*='text-[11px]'] {
+  font-size: calc(11px * var(--ui-scale)) !important;
+}
+[class*='text-[11.5px]'] {
+  font-size: calc(11.5px * var(--ui-scale)) !important;
+}
+[class*='text-[12px]'] {
+  font-size: calc(12px * var(--ui-scale)) !important;
+}
+[class*='text-[12.5px]'] {
+  font-size: calc(12.5px * var(--ui-scale)) !important;
+}
+[class*='text-[13px]'] {
+  font-size: calc(13px * var(--ui-scale)) !important;
+}
+[class*='text-[14px]'] {
+  font-size: calc(14px * var(--ui-scale)) !important;
+}
+[class*='text-[15px]'] {
+  font-size: calc(15px * var(--ui-scale)) !important;
+}
+[class*='text-[16px]'] {
+  font-size: calc(16px * var(--ui-scale)) !important;
+}
+
+textarea,
+input {
+  user-select: text;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted) 35%, transparent) transparent;
+}
+
+/* 스크롤바 완전 숨김 (공간 0). unlayered라 전역 * 규칙을 이김 */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* frameless 창 드래그 영역 */
+.drag {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}
