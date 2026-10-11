@@ -31,7 +31,14 @@ export function LibraryEditor({ store }: { store: PixaiStore }): React.JSX.Eleme
     const id = crypto.randomUUID()
     setCreating(
       kind === 'presets'
-        ? { id, name: '', model: { id: '', versionId: '', name: '' }, loras: [] }
+        ? {
+            id,
+            name: '',
+            model: { id: '', versionId: '', name: '' },
+            loras: [],
+            prompt: '',
+            negativePrompt: ''
+          }
         : { id, name: '', prompt: '', negativePrompt: '' }
     )
     setSelected('')
@@ -421,6 +428,16 @@ function MaterialEditor({
             >
               LoRA 추가
             </button>
+            <h3>이 프리셋의 공통 문구</h3>
+            <PromptFields
+              prompt={draft.prompt ?? ''}
+              negativePrompt={draft.negativePrompt ?? ''}
+              labels={{ prompt: '이 프리셋의 공통 포지', negativePrompt: '이 프리셋의 공통 네거' }}
+              onChange={(value) => setDraft({ ...draft, ...value })}
+            />
+            <small>
+              이 프리셋을 선택한 조합에 전역 공통문과 함께 적용됩니다. 비워 두면 이전과 같습니다.
+            </small>
           </>
         ) : (
           <>

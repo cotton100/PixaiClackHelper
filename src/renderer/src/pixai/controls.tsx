@@ -298,24 +298,29 @@ export function ImagePicker({
 export function PromptFields({
   prompt,
   negativePrompt,
-  onChange
+  onChange,
+  labels
 }: {
   prompt: string
   negativePrompt: string
   onChange: (value: { prompt: string; negativePrompt: string }) => void
+  /** 용도를 구분하는 표기 (예: 프리셋 공통 포지/네거). 주면 aria-label로도 쓴다. */
+  labels?: { prompt: string; negativePrompt: string }
 }): React.JSX.Element {
   return (
     <>
       <label>
-        프롬프트
+        {labels?.prompt ?? '프롬프트'}
         <textarea
+          aria-label={labels?.prompt}
           value={prompt}
           onChange={(event) => onChange({ prompt: event.target.value, negativePrompt })}
         />
       </label>
       <label>
-        네거티브
+        {labels?.negativePrompt ?? '네거티브'}
         <textarea
+          aria-label={labels?.negativePrompt}
           value={negativePrompt}
           onChange={(event) => onChange({ prompt, negativePrompt: event.target.value })}
         />

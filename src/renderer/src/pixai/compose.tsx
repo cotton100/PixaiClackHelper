@@ -3,6 +3,7 @@ import { Star, X } from 'lucide-react'
 import {
   composePrompts,
   normalizeSnapshot,
+  presetHasText,
   type Combination,
   type Reservation
 } from '@shared/pixai/library'
@@ -39,6 +40,8 @@ export function Compose({
       library.scenes.find((item) => item.id === id)
   )
   const completeChunks = chunks.filter((item): item is NonNullable<typeof item> => !!item)
+  // The preset's own common text rides inside the common block, so the trigger index is unchanged.
+  const commonLabel = preset && presetHasText(preset) ? '공통문 + 프리셋 문구' : '공통문'
   const prompts = composePrompts(
     library.common,
     character ?? { prompt: '', negativePrompt: '' },
@@ -326,7 +329,7 @@ export function Compose({
                   id === 'triggers'
                     ? 'LoRA 트리거'
                     : id === 'common'
-                      ? '공통문'
+                      ? commonLabel
                       : id === 'character'
                         ? '캐릭터'
                         : (completeChunks.find((chunk) => `chunk:${chunk.id}` === id)?.name ??
@@ -336,7 +339,7 @@ export function Compose({
                 <div className="px-order-row">
                   <span>
                     {id === 'common'
-                      ? '공통문'
+                      ? commonLabel
                       : id === 'character'
                         ? character?.name || '캐릭터 미선택'
                         : id === 'triggers'
@@ -357,6 +360,12 @@ export function Compose({
             ))}
           </SortableItems>
         </div>
+        {preset && presetHasText(preset) && (
+          <small>
+            프리셋 「{preset.name}」의 공통 포지·네거가 공통문 블록에 포함됩니다. 미리보기와 예약에
+            같은 문구가 들어갑니다.
+          </small>
+        )}
         <label>
           LoRA 트리거 위치
           <select

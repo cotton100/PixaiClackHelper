@@ -28,7 +28,8 @@ export function BackupSettings({
     casts: '저장 출연',
     batchPlans: '일괄 예약 구성',
     'characters.defaultPresetId': '캐릭터 기본 프리셋 연결',
-    'reservations.batch': '예약 묶음 표시'
+    'reservations.batch': '예약 묶음 표시',
+    'presets.prompt': '프리셋 공통 포지·네거'
   }
   async function readFile(file?: File): Promise<void> {
     setPreview(null)
@@ -153,7 +154,22 @@ export function BackupSettings({
             <h3>{exportTarget === 'app' ? '앱용' : '스크립트용'} 설정 백업</h3>
             {exportTarget === 'script' ? (
               <>
-                <p>추가 문구가 포함된 예약 {dropped.reservations}개를 제외합니다.</p>
+                <p>
+                  추가 문구가 포함된 예약 {dropped.reservations}개를 제외합니다
+                  {dropped.reservationsWithPresetText > 0 &&
+                    ` (그중 프리셋 공통 문구가 든 예약 ${dropped.reservationsWithPresetText}개)`}
+                  .
+                </p>
+                {dropped.presetsWithText.length > 0 && (
+                  <p>
+                    프리셋 {dropped.presetsWithText.map((name) => `「${name}」`).join(', ')}의 공통
+                    포지·네거는 스크립트가 읽지 못해 빠집니다. 스크립트에서는 문구 없는 프리셋으로
+                    적용됩니다
+                    {dropped.combinationsWithPresetText > 0 &&
+                      ` (이 프리셋을 쓰는 최근 조합·즐겨찾기 ${dropped.combinationsWithPresetText}개도 문구 없이 불러와집니다)`}
+                    .
+                  </p>
+                )}
                 <p>
                   빠지는 항목: {dropped.keys.map((key) => names[key] ?? key).join(', ') || '없음'}
                 </p>

@@ -33,6 +33,14 @@ export interface Preset {
   name: string
   model: ModelRef
   loras: LoraRef[]
+  /** 이 프리셋을 고른 조합에 전역 공통문과 함께 들어가는 문구 (없으면 빈 문구로 해석) */
+  prompt?: string
+  negativePrompt?: string
+}
+
+/** 프리셋에 공통 문구가 하나라도 있으면 true. 스크립트는 이 필드를 모르므로 내보내기 때 구분한다. */
+export function presetHasText(preset: Pick<Preset, 'prompt' | 'negativePrompt'>): boolean {
+  return !!(presetText(preset.prompt) || presetText(preset.negativePrompt))
 }
 
 export interface Character {
@@ -552,11 +560,17 @@ export function normalizeLibrary(value: unknown): Library {
       prompt: presetText(common.prompt),
       negativePrompt: presetText(common.negativePrompt)
     },
-    presets: entries('presets', (item, id) => ({
-      id,
-      name: presetText(item.name),
-      ...validatePresetConfiguration(item)
-    })),
+    presets: entries('presets', (item, id) => {
+      const preset: Preset = {
+        id,
+        name: presetText(item.name),
+        ...validatePresetConfiguration(item)
+      }
+      // Optional per-preset common text; older presets keep their shape untouched.
+      if (hasOwn(item, 'prompt')) preset.prompt = presetText(item.prompt)
+      if (hasOwn(item, 'negativePrompt')) preset.negativePrompt = presetText(item.negativePrompt)
+      return preset
+    }),
     characters: entries('characters', (item, id) => {
       const character: Character = {
         id,
@@ -692,7 +706,12 @@ export function strictLibrary(value: unknown): Library {
   ])
     allowedKeys(folder, '폴더', ['id', 'name'])
   for (const item of list('presets')) {
-    const preset = allowedKeys(item, '설정 프리셋', ['id', 'name', 'model', 'loras'])
+    const preset = allowedKeys(
+      item,
+      '설정 프리셋',
+      ['id', 'name', 'model', 'loras'],
+      ['id', 'name', 'model', 'loras', 'prompt', 'negativePrompt']
+    )
     allowedKeys(
       preset.model,
       '모델',
@@ -774,29 +793,75 @@ export function strictLibrary(value: unknown): Library {
 }
 
 /** 스크립트(0.9.x)가 읽을 수 있는 모양: 앱 전용 키·필드를 뺀다. 예약 사본의 extras는 문구에 녹여 넣을 수 없으므로 그런 예약은 제외하고 개수를 알려 준다. */
+export interface ScriptExportDropped {
+  /** 제외한 예약 수 (출연·씬 추가 문구 또는 실제 적용할 프리셋 문구가 있는 것) */
+  reservations: number
+  /** 그중 프리셋 문구 때문에 제외한 예약 수 */
+  reservationsWithPresetText: number
+  /** 문구가 있는 프리셋 이름 — 스크립트에서는 문구 없이 적용된다 */
+  presetsWithText: string[]
+  /** 문구 있는 프리셋을 참조하는 최근 조합·즐겨찾기 수 — 스크립트에서 불러오면 문구가 빠진다 */
+  combinationsWithPresetText: number
+  keys: string[]
+}
+
+/** 스크립트가 아는 프리셋 모양: 문구 필드를 뺀다. */
+function presetForScript(preset: Preset): Preset {
+  return omitKey(omitKey(preset, 'prompt'), 'negativePrompt')
+}
+
 export function exportForScript(value: unknown): {
   library: Library
-  dropped: { reservations: number; keys: string[] }
+  dropped: ScriptExportDropped
 } {
   const library = normalizeLibrary(value)
-  const dropped = { reservations: 0, keys: [] as string[] }
+  const dropped: ScriptExportDropped = {
+    reservations: 0,
+    reservationsWithPresetText: 0,
+    presetsWithText: library.presets
+      .filter(presetHasText)
+      .map((preset) => preset.name || preset.id),
+    combinationsWithPresetText: 0,
+    keys: []
+  }
+  const textPresetIds = new Set(library.presets.filter(presetHasText).map((preset) => preset.id))
+  dropped.combinationsWithPresetText = (library.combinations ?? []).filter((item) =>
+    textPresetIds.has(item.presetId)
+  ).length
   const out: Library = {
     version: 1,
     common: library.common,
-    presets: library.presets,
+    presets: library.presets.map(presetForScript),
     characters: library.characters.map((character) => omitKey(character, 'defaultPresetId')),
     chunkFolders: library.chunkFolders,
     scenes: library.scenes,
     reservations: library.reservations
       .filter((item) => {
+        // Match expandReservations: use today's preset only when no frozen copy exists.
+        const preset =
+          item.snapshot?.preset ?? library.presets.find((preset) => preset.id === item.presetId)
+        if (preset && presetHasText(preset)) {
+          dropped.reservations++
+          dropped.reservationsWithPresetText++
+          return false
+        }
         if (item.snapshot?.extras) {
           dropped.reservations++
           return false
         }
         return true
       })
-      .map((item) => omitKey(item, 'batch'))
+      .map((item) => {
+        const plain = omitKey(item, 'batch')
+        return plain.snapshot
+          ? {
+              ...plain,
+              snapshot: { ...plain.snapshot, preset: presetForScript(plain.snapshot.preset) }
+            }
+          : plain
+      })
   }
+  if (dropped.presetsWithText.length) dropped.keys.push('presets.prompt')
   if (library.combinations) out.combinations = library.combinations
   if (library.characterFolders) out.characterFolders = library.characterFolders
   for (const key of ['sceneFolders', 'sceneCards', 'casts', 'batchPlans'] as const)
@@ -940,18 +1005,22 @@ const joinParts = (...parts: Array<string | undefined>): string =>
     .filter(Boolean)
     .join(', ')
 
-/** 공통 → (트리거) → 캐릭터+출연 문구 → 청크들 → 씬 문구. 트리거 위치: 0=맨 앞, 1=공통 뒤, 2=캐릭터 뒤, k+2=청크 k 뒤, 'end'=맨 뒤. */
+/**
+ * 공통(전역 공통 + 프리셋 공통) → (트리거) → 캐릭터+출연 문구 → 청크들 → 씬 문구.
+ * 트리거 위치: 0=맨 앞, 1=공통 블록 뒤, 2=캐릭터 뒤, k+2=청크 k 뒤, 'end'=맨 뒤.
+ * 프리셋 문구는 전역 공통 바로 뒤에 붙는 같은 블록이라 트리거 인덱스를 바꾸지 않는다.
+ */
 export function composePrompts(
   common: ExtraText,
   character: ExtraText,
   chunks: ExtraText[],
-  preset: { loras: LoraRef[] },
+  preset: { loras: LoraRef[]; prompt?: string; negativePrompt?: string },
   triggerPosition: TriggerPosition = 1,
   extras: { cast?: ExtraText; scene?: ExtraText } = {}
 ): ExtraText {
   const triggers = preset.loras.map((item) => presetText(item.triggerWords ?? ''))
   const promptParts = [
-    common.prompt,
+    joinParts(common.prompt, preset.prompt),
     joinParts(character.prompt, extras.cast?.prompt),
     ...chunks.map((item) => item.prompt)
   ]
@@ -962,7 +1031,7 @@ export function composePrompts(
     promptParts.push(extras.scene?.prompt ?? '')
   }
   const negativeParts = [
-    common.negativePrompt,
+    joinParts(common.negativePrompt, preset.negativePrompt),
     joinParts(character.negativePrompt, extras.cast?.negativePrompt),
     ...chunks.map((item) => item.negativePrompt),
     extras.scene?.negativePrompt ?? ''
