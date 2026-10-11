@@ -22,8 +22,10 @@ export function BackupSettings({
   const [exportTarget, setExportTarget] = useState<'app' | 'script' | null>(null)
   const [notice, setNotice] = useState('')
   const dropped = exportForScript(workspace.library).dropped
+  if (workspace.options.ui) dropped.keys.push('options.ui')
   const names: Record<string, string> = {
-    sceneFolders: '씬 모음',
+    sceneFolders: '씬 그룹',
+    'options.ui': '칸 비율·씬 보기·접힘 설정',
     sceneCards: '씬 카드',
     casts: '저장 출연',
     batchPlans: '일괄 예약 구성',

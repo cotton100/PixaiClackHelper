@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from 'react'
+import { useDroppable } from '@dnd-kit/core'
+import { Children, useState, type ReactNode } from 'react'
 import { ChevronDown, ChevronRight, Folder } from 'lucide-react'
 import type { Chunk, Folder as ChunkFolder } from '@shared/pixai/library'
 import { SortableItem, SortableItems } from './controls'
@@ -9,6 +10,7 @@ export function ChunkList<T extends Pick<Chunk, 'id' | 'name' | 'folderId'>>({
   search = '',
   render,
   onReorder,
+  onMove,
   label = '청크'
 }: {
   chunks: T[]
@@ -16,10 +18,11 @@ export function ChunkList<T extends Pick<Chunk, 'id' | 'name' | 'folderId'>>({
   search?: string
   render: (chunk: T) => ReactNode
   onReorder?: (ids: string[]) => void
+  onMove?: (id: string, folder: string) => void
   label?: string
 }): React.JSX.Element {
   const [opened, setOpened] = useState<string[]>([])
-  return (
+  const content = (
     <div className="px-chunk-groups">
       {[...folders, { id: '', name: '미분류' }].map((folder) => {
         const all = chunks.filter((chunk) => (chunk.folderId ?? '') === folder.id)
@@ -29,7 +32,8 @@ export function ChunkList<T extends Pick<Chunk, 'id' | 'name' | 'folderId'>>({
         if ((search && !visible.length) || (!folder.id && !all.length)) return null
         const open = !!search || opened.includes(folder.id)
         return (
-          <section
+          <FolderDrop
+            id={folder.id}
             className="px-chunk-group"
             key={folder.id}
             aria-label={`${label} 폴더 ${folder.name}`}
@@ -51,22 +55,66 @@ export function ChunkList<T extends Pick<Chunk, 'id' | 'name' | 'folderId'>>({
             {open && (
               <div className="px-folder-content">
                 {onReorder ? (
-                  <SortableItems ids={all.map((chunk) => chunk.id)} onReorder={onReorder}>
+                  <>
                     {visible.map((chunk) => (
                       <SortableItem key={chunk.id} id={chunk.id} name={chunk.name}>
                         {render(chunk)}
                       </SortableItem>
                     ))}
-                  </SortableItems>
+                  </>
                 ) : (
                   visible.map((chunk) => <div key={chunk.id}>{render(chunk)}</div>)
                 )}
                 {!all.length && <small>아직 {label}가 없습니다.</small>}
               </div>
             )}
-          </section>
+          </FolderDrop>
         )
       })}
     </div>
+  )
+  return onReorder ? (
+    <SortableItems
+      ids={chunks.map((chunk) => chunk.id)}
+      onReorder={onReorder}
+      onDrop={(id, target) => {
+        if (!onMove) return false
+        if (target.startsWith('folder:')) {
+          onMove(id, target.slice(7))
+          return true
+        }
+        const source = chunks.find((chunk) => chunk.id === id),
+          destination = chunks.find((chunk) => chunk.id === target)
+        if (source && destination && source.folderId !== destination.folderId) {
+          onMove(id, destination.folderId ?? '')
+          return true
+        }
+        return false
+      }}
+    >
+      {content}
+    </SortableItems>
+  ) : (
+    content
+  )
+}
+function FolderDrop({
+  id,
+  children,
+  ...props
+}: {
+  id: string
+  children: ReactNode
+  className: string
+  'aria-label': string
+}): React.JSX.Element {
+  const { setNodeRef, isOver } = useDroppable({ id: 'folder:' + id })
+  return (
+    <section {...props}>
+      <div ref={setNodeRef} className={isOver ? 'px-drop-target' : undefined}>
+        {Children.toArray(children)[0]}
+      </div>
+      {Children.toArray(children).slice(1)}
+    </section>
   )
 }

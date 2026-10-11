@@ -36,7 +36,9 @@ it('restores compose selections after unmount and restart and never writes empty
       [...pane().querySelectorAll('button')].find((b) => b.textContent === name)!.click()
     )
   }
+  await click('프리셋')
   await click('기본 모델')
+  await click('캐릭터')
   await act(async () =>
     pane().querySelector<HTMLButtonElement>('button[aria-label="캐릭터 폴더 미분류"]')!.click()
   )
@@ -53,9 +55,7 @@ it('restores compose selections after unmount and restart and never writes empty
   const restarted = createPixaiStore(storage)
   await act(async () => root.render(h(PixaiApp, { store: restarted })))
   expect(saved).toBe(before)
-  expect(pane().querySelector<HTMLButtonElement>('button[aria-pressed="true"]')?.textContent).toBe(
-    '기본 모델'
-  )
+  expect(pane().querySelector('.px-selection-summary')?.textContent).toContain('기본 모델')
   expect(restarted.getState().workspace.composeDraft).toMatchObject({
     characterId: 'c2',
     sceneIds: ['s2', 's1'],

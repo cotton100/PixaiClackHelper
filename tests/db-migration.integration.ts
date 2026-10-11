@@ -249,3 +249,41 @@ describe('language initialization from database creation', () => {
     expect(resolveInitialLanguage(initialized.isNewDatabase)).toBe('ko')
   })
 })
+
+it('migrates v18 PixAI batch labels without altering payloads, task IDs, files or unknown records', () => {
+  const database = new Database(path())
+  legacy = database
+  for (let i = 0; i < 18; i++) migrations[i](database)
+  database.pragma('user_version = 18')
+  const batch = { id: 'batch1', name: '표정 묶음', rowName: '캐릭터', columnName: '씬' }
+  const workspace = {
+    version: 1,
+    jobs: [{ request: { id: 'job1', composition: { reservation: { batch } } } }]
+  }
+  const jobs = [
+    {
+      id: 'job1',
+      state: 'done',
+      taskId: '123',
+      files: ['fixture.png'],
+      payload: { seed: 42, prompt: 'fixture' }
+    },
+    { id: 'old', state: 'waiting', taskId: '456', files: [], payload: { seed: 11 } }
+  ]
+  const insert = database.prepare('INSERT OR REPLACE INTO settings(key,value) VALUES (?,?)')
+  insert.run('pixais.workspace.v1', JSON.stringify(workspace))
+  insert.run('pixais.runner.v1', JSON.stringify(jobs))
+  insert.run('pixais.key.v1', 'opaque fixture')
+  database.close()
+  legacy = undefined
+  initDb()
+  expect(getDb().pragma('user_version', { simple: true })).toBe(19)
+  const value = (key: string): string =>
+    (getDb().prepare('SELECT value FROM settings WHERE key=?').get(key) as { value: string }).value
+  const saved = JSON.parse(value('pixais.runner.v1'))
+  expect(saved).toEqual([{ ...jobs[0], batchId: 'batch1', batchName: '표정 묶음' }, jobs[1]])
+  expect(value('pixais.workspace.v1')).toBe(JSON.stringify(workspace))
+  expect(value('pixais.key.v1')).toBe('opaque fixture')
+  migrations[18](getDb())
+  expect(JSON.parse(value('pixais.runner.v1'))).toEqual(saved)
+})

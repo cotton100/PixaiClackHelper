@@ -6,7 +6,7 @@ import {
   type QueuedJob,
   type RunnerStatus
 } from '../../shared/pixai/execution'
-import { presetIdentifier } from '../../shared/pixai/library'
+import { presetIdentifier, presetText } from '../../shared/pixai/library'
 import { ApiError, type Task } from './client'
 
 interface RunnerIO {
@@ -115,6 +115,15 @@ export class PixaiRunner {
                 input.request.composition.reservation.sourceSceneId,
                 '원본 씬'
               )
+            }
+          : {}),
+        ...(input.request.composition.reservation.batch
+          ? {
+              batchId: presetIdentifier(
+                input.request.composition.reservation.batch.id,
+                '예약 묶음'
+              ),
+              batchName: presetText(input.request.composition.reservation.batch.name)
             }
           : {}),
         state: 'queued',

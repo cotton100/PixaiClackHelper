@@ -59,7 +59,31 @@ export default function PixaiApp({
     <div className="px-app">
       <header className="px-titlebar">
         <strong>PixaiClackHelper</strong>
-        <span>캐릭터와 장면을 골라, 한 번에 예약</span>
+
+        <nav className="px-nav" aria-label="PixaiClackHelper 메뉴">
+          {tabs.map(({ id, label, Icon }) => (
+            <button
+              key={id}
+              aria-current={tab === id ? 'page' : undefined}
+              onClick={() => setTab(id)}
+            >
+              <Icon size={19} />
+              <span>{label}</span>
+              {id === 'queue' && workspace.jobs.length > 0 && (
+                <small>{workspace.jobs.length}</small>
+              )}
+            </button>
+          ))}
+          <span className="px-save-state" role="status">
+            {busy || draftSaving
+              ? '저장 중…'
+              : error
+                ? '저장 확인 필요'
+                : ready
+                  ? '초안·구성 저장됨'
+                  : '불러오는 중…'}
+          </span>
+        </nav>
         <div className="px-window-controls">
           {window.nais?.runtime !== 'browser' &&
             (
@@ -81,22 +105,6 @@ export default function PixaiApp({
             ))}
         </div>
       </header>
-      <nav className="px-nav" aria-label="PixaiClackHelper 메뉴">
-        {tabs.map(({ id, label, Icon }) => (
-          <button
-            key={id}
-            aria-current={tab === id ? 'page' : undefined}
-            onClick={() => setTab(id)}
-          >
-            <Icon size={19} />
-            <span>{label}</span>
-            {id === 'queue' && workspace.jobs.length > 0 && <small>{workspace.jobs.length}</small>}
-          </button>
-        ))}
-        <span className="px-save-state" role="status">
-          {busy || draftSaving ? '저장 중…' : ready ? '로컬 작업 공간' : '불러오는 중…'}
-        </span>
-      </nav>
       {error && (
         <div className="px-global-error" role="alert">
           {error}
@@ -160,11 +168,6 @@ export default function PixaiApp({
           {error ? '기존 자료를 보호하기 위해 편집을 잠시 멈췄습니다.' : '작업 공간을 불러옵니다…'}
         </div>
       )}
-      <footer className="px-app-footer">
-        <span>예약 {workspace.library.reservations.length}조합</span>
-        <span>대기열 {workspace.jobs.length}작업</span>
-        <span>예약·등록은 준비 단계입니다. 대기열에서 시작하세요.</span>
-      </footer>
     </div>
   )
 }

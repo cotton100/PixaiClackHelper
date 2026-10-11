@@ -878,7 +878,51 @@ export function exportForScript(value: unknown): {
 
 // ---- 설정 백업 (스크립트 형식 'pixai-web-queue-settings' v1) ----
 
+export interface WorkspaceUI {
+  paneRatios?: Partial<Record<'compose' | 'scenes' | 'library', number[]>>
+  collapsedPane?: Partial<Record<'compose' | 'scenes' | 'library', number>>
+  sceneView?: 'grid' | 'list'
+}
+export function normalizeWorkspaceUI(value: unknown): WorkspaceUI {
+  const raw = allowedKeys(value, '화면 설정', [], ['paneRatios', 'collapsedPane', 'sceneView'])
+  const result: WorkspaceUI = {}
+  if (raw.sceneView !== undefined) {
+    if (!['grid', 'list'].includes(raw.sceneView as string))
+      throw new Error('씬 보기 방식을 확인해 주세요.')
+    result.sceneView = raw.sceneView as 'grid' | 'list'
+  }
+  if (raw.paneRatios !== undefined) {
+    const ratios = allowedKeys(raw.paneRatios, '칸 비율', [], ['compose', 'scenes', 'library'])
+    result.paneRatios = {}
+    for (const name of ['compose', 'scenes', 'library'] as const)
+      if (ratios[name] !== undefined) {
+        const values = ratios[name]
+        if (
+          !Array.isArray(values) ||
+          values.length !== 3 ||
+          values.some((n) => typeof n !== 'number' || !Number.isFinite(n) || n < 5 || n > 90) ||
+          Math.abs(values.reduce((a, b) => a + b, 0) - 100) > 0.1
+        )
+          throw new Error('칸 비율을 확인해 주세요.')
+        result.paneRatios[name] = [...values]
+      }
+  }
+  if (raw.collapsedPane !== undefined) {
+    const collapsed = allowedKeys(
+      raw.collapsedPane,
+      '접힌 칸',
+      [],
+      ['compose', 'scenes', 'library']
+    )
+    result.collapsedPane = {}
+    for (const name of ['compose', 'scenes', 'library'] as const)
+      if (collapsed[name] !== undefined)
+        result.collapsedPane[name] = presetInteger(collapsed[name], '접힌 칸', 0, 2)
+  }
+  return result
+}
 export interface SettingsOptions {
+  ui?: WorkspaceUI
   maxCredits: number | null
   filePrefix: string
   repeat: number
@@ -901,7 +945,7 @@ export function normalizeSettingsOptions(value: unknown): SettingsOptions {
     value,
     '대기열 옵션',
     ['maxCredits', 'filePrefix', 'repeat'],
-    ['maxCredits', 'filePrefix', 'repeat', 'maxInFlight', 'imageCount', 'api']
+    ['maxCredits', 'filePrefix', 'repeat', 'maxInFlight', 'imageCount', 'api', 'ui']
   )
   if (
     source.maxCredits !== null &&
@@ -918,6 +962,7 @@ export function normalizeSettingsOptions(value: unknown): SettingsOptions {
     filePrefix: presetText(source.filePrefix),
     repeat: presetInteger(source.repeat, '반복 횟수', 1, 100)
   }
+  if (hasOwn(source, 'ui')) options.ui = normalizeWorkspaceUI(source.ui)
   if (hasOwn(source, 'maxInFlight'))
     options.maxInFlight = presetInteger(source.maxInFlight, '미리 등록할 작업 수', 1, 10)
   if (hasOwn(source, 'imageCount')) {
@@ -997,7 +1042,10 @@ export function makeSettingsBackup(
     appVersion: meta.appVersion,
     exportedAt: meta.exportedAt,
     library: strictLibrary(normalized),
-    options: normalizeSettingsOptions(options)
+    options:
+      target === 'script'
+        ? (omitKey(normalizeSettingsOptions(options), 'ui') as unknown as SettingsOptions)
+        : normalizeSettingsOptions(options)
   }
 }
 

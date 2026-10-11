@@ -343,5 +343,53 @@ export const migrations: ((db: Database.Database) => void)[] = [
   // v18: lightweight Danbooru-based defaults. Existing fragments win on name collisions.
   (db) => {
     seedDefaultDanbooruFragments(db)
+  },
+  // v19: PixAI journals are JSON settings, not job-table rows. Copy display metadata
+  // only when the exact existing workspace job identifies its frozen reservation.
+  (db) => {
+    const read = (key: string): string | undefined =>
+      (
+        db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as
+          { value: string } | undefined
+      )?.value
+    const journalText = read('pixais.runner.v1'),
+      workspaceText = read('pixais.workspace.v1')
+    if (!journalText || !workspaceText) return
+    let journal: unknown, workspace: unknown
+    try {
+      journal = JSON.parse(journalText)
+      workspace = JSON.parse(workspaceText)
+    } catch {
+      return
+    }
+    if (
+      !Array.isArray(journal) ||
+      !workspace ||
+      typeof workspace !== 'object' ||
+      !('jobs' in workspace) ||
+      !Array.isArray(workspace.jobs)
+    )
+      return
+    const jobs = workspace.jobs
+    let changed = false
+    const next = journal.map((job) => {
+      if (!job || typeof job !== 'object' || job.batchId !== undefined) return job
+      const local = jobs.find((item) => item?.request?.id === job.id)
+      const batch = local?.request?.composition?.reservation?.batch
+      if (
+        !batch ||
+        typeof batch.id !== 'string' ||
+        !/^[a-zA-Z0-9_-]{1,100}$/.test(batch.id) ||
+        typeof batch.name !== 'string'
+      )
+        return job
+      changed = true
+      return { ...job, batchId: batch.id, batchName: batch.name.slice(0, 300) }
+    })
+    if (changed)
+      db.prepare('UPDATE settings SET value = ? WHERE key = ?').run(
+        JSON.stringify(next),
+        'pixais.runner.v1'
+      )
   }
 ]

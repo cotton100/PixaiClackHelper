@@ -9,8 +9,8 @@ import {
   type Reservation
 } from '@shared/pixai/library'
 import { makeSceneCard } from '@shared/pixai/batch-reserve'
-import { ImagePicker, SortableItem, SortableItems, SplitPanes } from './controls'
-import type { PixaiStore } from './store'
+import { ImageSummary, StageChips, SortableItem, SortableItems, SplitPanes } from './controls'
+import { savePaneUI, type PixaiStore } from './store'
 import type { ComposeDraft } from './composition'
 import { ChunkList } from './chunk-list'
 import { resolveImageOptions } from '@shared/pixai/generation-options'
@@ -31,6 +31,8 @@ export function Compose({
   const { library } = workspace
   const imageOptions = resolveImageOptions(draft.imageOptions, workspace.options)
   const [search, setSearch] = useState('')
+  const [materialTab, setMaterialTab] = useState('chunks')
+  const [saveDefaults, setSaveDefaults] = useState(false)
   const [tab, setTab] = useState<'reservations' | 'recent' | 'favorites'>('reservations')
   const [notice, setNotice] = useState('')
   const preset = library.presets.find((item) => item.id === draft.presetId)
@@ -158,276 +160,348 @@ export function Compose({
   return (
     <SplitPanes
       name="조합"
-      widths={workspace.widths.compose}
-      onSave={(widths) =>
-        void run(() =>
-          store
-            .getState()
-            .commit((current) => ({ ...current, widths: { ...current.widths, compose: widths } }))
-        )
-      }
+      widths={workspace.options.ui?.paneRatios?.compose ?? workspace.widths.compose}
+      collapsed={workspace.options.ui?.collapsedPane?.compose}
+      labels={['조합 재료', '순서·미리보기', '예약·기록']}
+      onCollapse={(index) => void savePaneUI(store, 'compose', undefined, index).catch(() => {})}
+      onSave={(widths) => void savePaneUI(store, 'compose', widths).catch(() => {})}
     >
       <section className="px-pane" aria-label="조합 재료">
         <header>
           <h2>조합 재료</h2>
         </header>
-        <div className="px-selectors">
-          <div>
-            <h3>프리셋</h3>
-            <div className="px-button-list">
-              {library.presets.map((item) => (
-                <button
-                  key={item.id}
-                  aria-pressed={draft.presetId === item.id}
-                  onClick={() => onChange({ ...draft, presetId: item.id })}
-                >
-                  {item.name}
-                </button>
-              ))}
-            </div>
+        <div className="px-scroll px-material-body">
+          <div className="px-selection-summary">
+            <button onClick={() => setMaterialTab('presets')}>
+              프리셋 <strong>{preset?.name || '선택해 주세요'}</strong>
+            </button>
+            <button onClick={() => setMaterialTab('characters')}>
+              캐릭터 <strong>{character?.name || '선택해 주세요'}</strong>
+            </button>
+            <button onClick={() => setMaterialTab('chunks')}>
+              청크 <strong>{draft.sceneIds.length}개 선택</strong>
+            </button>
           </div>
-          <div>
-            <h3>캐릭터</h3>
-            <div className="px-button-list">
-              <ChunkList
-                chunks={library.characters}
-                folders={library.characterFolders ?? []}
-                label="캐릭터"
-                render={(item) => (
+          <ImageSummary
+            value={imageOptions}
+            allowInherit={false}
+            scope={
+              JSON.stringify(imageOptions) ===
+              JSON.stringify(resolveImageOptions(undefined, workspace.options))
+                ? '이 예약에 적용 · 기본값과 같음'
+                : '이 예약만 · 기본값과 다름'
+            }
+            onChange={(next) => {
+              if (!next) return
+              if (!saveDefaults) {
+                onChange({ ...draft, imageOptions: next })
+                return
+              }
+              void run(async () => {
+                await store.getState().commit((current) => ({
+                  ...current,
+                  options: {
+                    ...current.options,
+                    imageCount: next.batchSize,
+                    api: {
+                      ...current.options.api,
+                      aspectRatio: next.aspectRatio,
+                      size: next.size,
+                      mode: next.mode
+                    }
+                  },
+                  composeDraft: { ...draft, imageOptions: next }
+                }))
+              })
+            }}
+          >
+            <fieldset className="px-toolbar">
+              <legend>이미지 설정 적용 범위</legend>
+              <label className="px-check">
+                <input
+                  type="radio"
+                  name="image-scope"
+                  checked={!saveDefaults}
+                  onChange={() => setSaveDefaults(false)}
+                />
+                이 예약만
+              </label>
+              <label className="px-check">
+                <input
+                  type="radio"
+                  name="image-scope"
+                  checked={saveDefaults}
+                  onChange={() => setSaveDefaults(true)}
+                />
+                기본값으로도 저장
+              </label>
+            </fieldset>
+            <small>기본값 저장을 선택한 뒤 변경한 값부터 적용됩니다. 기존 예약은 유지됩니다.</small>
+          </ImageSummary>
+          <GenerationSettings store={store} />
+          <div className="px-subtabs" aria-label="조합 재료 종류">
+            {['presets', 'characters', 'chunks'].map((id, i) => (
+              <button
+                key={id}
+                aria-pressed={materialTab === id}
+                onClick={() => {
+                  setMaterialTab(id)
+                  setSearch('')
+                }}
+              >
+                {['프리셋', '캐릭터', '청크'][i]}
+              </button>
+            ))}
+          </div>
+          <input
+            aria-label="조합 청크 검색"
+            placeholder="현재 재료 검색"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+          {materialTab === 'presets' && (
+            <div aria-label="프리셋 선택" className="px-material-list">
+              {library.presets
+                .filter((item) => item.name.toLowerCase().includes(search.toLowerCase()))
+                .map((item) => (
                   <button
                     key={item.id}
-                    aria-pressed={draft.characterId === item.id}
-                    onClick={() =>
-                      onChange({
-                        ...draft,
-                        characterId: item.id,
-                        presetId: item.defaultPresetId || draft.presetId
-                      })
-                    }
+                    aria-pressed={draft.presetId === item.id}
+                    onClick={() => onChange({ ...draft, presetId: item.id })}
                   >
                     {item.name}
                   </button>
-                )}
-              />
+                ))}
             </div>
-          </div>
-        </div>
-        <ImagePicker
-          value={imageOptions}
-          allowInherit={false}
-          onChange={(next) => {
-            if (!next) return
-            void run(async () => {
-              await store.getState().commit((current) => ({
-                ...current,
-                options: {
-                  ...current.options,
-                  imageCount: next.batchSize,
-                  api: {
-                    ...current.options.api,
-                    aspectRatio: next.aspectRatio,
-                    size: next.size,
-                    mode: next.mode
+          )}
+          {materialTab === 'characters' && (
+            <ChunkList
+              chunks={library.characters}
+              folders={library.characterFolders ?? []}
+              label="캐릭터"
+              search={search}
+              render={(item) => (
+                <button
+                  aria-pressed={draft.characterId === item.id}
+                  onClick={() =>
+                    onChange({
+                      ...draft,
+                      characterId: item.id,
+                      presetId: item.defaultPresetId || draft.presetId
+                    })
                   }
+                >
+                  {item.name}
+                </button>
+              )}
+            />
+          )}
+          <div hidden={materialTab !== 'chunks'}>
+            <div className="px-toolbar">
+              <span>청크 {draft.sceneIds.length}개 선택</span>
+              <button
+                onClick={() =>
+                  onChange({ ...draft, sceneIds: [], triggerPosition: 1, card: undefined })
                 }
-              }))
-              onChange({ ...draft, imageOptions: next })
-            })
-          }}
-        />
-        <small>
-          배치 수·모드·비율은 예약마다 보관합니다. 이후 선택을 바꿔도 기존 예약은 유지됩니다.
-        </small>
-        <GenerationSettings store={store} />
-        <input
-          aria-label="조합 청크 검색"
-          placeholder="청크 검색"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-        />
-        <div className="px-toolbar">
-          <span>청크 {draft.sceneIds.length}개 선택</span>
-          <button
-            onClick={() =>
-              onChange({ ...draft, sceneIds: [], triggerPosition: 1, card: undefined })
-            }
-          >
-            청크 선택 해제
-          </button>
-        </div>
-        <div className="px-scroll">
-          {[{ id: '', name: '미분류' }, ...library.chunkFolders].map((folder) => {
-            const items = library.scenes.filter(
-              (chunk) =>
-                (chunk.folderId ?? '') === folder.id &&
-                chunk.name.toLowerCase().includes(search.toLowerCase())
-            )
-            if (!items.length) return null
-            return (
-              <details key={folder.id} open={search ? true : undefined} className="px-folder">
-                <summary>
-                  {folder.name}{' '}
-                  <small>
-                    {items.filter((item) => draft.sceneIds.includes(item.id)).length}/{items.length}
-                  </small>
-                </summary>
-                {items.map((chunk) => (
-                  <label
+              >
+                청크 선택 해제
+              </button>
+            </div>
+            {!!completeChunks.length && (
+              <details open className="px-selected-materials">
+                <summary>선택한 청크 · 합쳐지는 순서</summary>
+                {completeChunks.map((chunk, i) => (
+                  <button
                     key={chunk.id}
-                    className={`px-check px-choice ${draft.sceneIds.includes(chunk.id) ? 'is-selected' : ''}`}
+                    onClick={() => toggle(chunk.id)}
+                    aria-label={chunk.name + ' 선택 해제'}
                   >
-                    <input
-                      aria-label={`청크 ${chunk.name}`}
-                      type="checkbox"
-                      checked={draft.sceneIds.includes(chunk.id)}
-                      onChange={() => toggle(chunk.id)}
-                    />
-                    <span>{chunk.name}</span>
-                  </label>
+                    {i + 1}. {chunk.name} ×
+                  </button>
                 ))}
               </details>
-            )
-          })}
-          {!library.scenes.length && (
-            <p className="px-empty">
-              설정에서 스크립트 백업을 가져오거나 라이브러리에서 청크를 만들어 주세요.
-            </p>
-          )}
+            )}
+            <div>
+              {[{ id: '', name: '미분류' }, ...library.chunkFolders].map((folder) => {
+                const items = library.scenes.filter(
+                  (chunk) =>
+                    (chunk.folderId ?? '') === folder.id &&
+                    chunk.name.toLowerCase().includes(search.toLowerCase())
+                )
+                if (!items.length) return null
+                return (
+                  <details key={folder.id} open={search ? true : undefined} className="px-folder">
+                    <summary>
+                      {folder.name}{' '}
+                      <small>
+                        {items.filter((item) => draft.sceneIds.includes(item.id)).length}/
+                        {items.length}
+                      </small>
+                    </summary>
+                    {items.map((chunk) => (
+                      <label
+                        key={chunk.id}
+                        className={`px-check px-choice ${draft.sceneIds.includes(chunk.id) ? 'is-selected' : ''}`}
+                      >
+                        <input
+                          aria-label={`청크 ${chunk.name}`}
+                          type="checkbox"
+                          checked={draft.sceneIds.includes(chunk.id)}
+                          onChange={() => toggle(chunk.id)}
+                        />
+                        <span>{chunk.name}</span>
+                      </label>
+                    ))}
+                  </details>
+                )
+              })}
+              {!library.scenes.length && (
+                <p className="px-empty">
+                  설정에서 스크립트 백업을 가져오거나 라이브러리에서 청크를 만들어 주세요.
+                </p>
+              )}
+            </div>
+          </div>
         </div>
       </section>
       <section className="px-pane" aria-label="순서·미리보기">
         <header>
           <h2>순서·미리보기</h2>
         </header>
-        {draft.card && (
-          <div className="px-banner">
-            씬 「{draft.card.name}」의 저장된 문구를 사용합니다.
-            <button onClick={() => onChange({ ...draft, card: undefined })}>씬 연결 해제</button>
-          </div>
-        )}
-        <div className="px-order">
-          <SortableItems
-            ids={order}
-            onReorder={(ids) => {
-              // Common and character stay in order; chunks and the trigger block move.
-              const materials = ids.filter((id) => id !== 'triggers')
-              if (materials[0] !== 'common' || materials[1] !== 'character') {
-                setNotice('공통문과 캐릭터는 앞에 고정됩니다. 청크와 트리거 순서를 바꿔 주세요.')
-                return
-              }
-              onChange({
-                ...draft,
-                sceneIds: materials.slice(2).map((id) => id.slice(6)),
-                triggerPosition:
-                  ids.indexOf('triggers') === ids.length - 1 ? 'end' : ids.indexOf('triggers')
-              })
-            }}
-          >
-            {order.map((id) => (
-              <SortableItem
-                key={id}
-                id={id}
-                name={
-                  id === 'triggers'
-                    ? 'LoRA 트리거'
-                    : id === 'common'
-                      ? commonLabel
-                      : id === 'character'
-                        ? '캐릭터'
-                        : (completeChunks.find((chunk) => `chunk:${chunk.id}` === id)?.name ??
-                          '누락 청크')
+        <div className="px-scroll">
+          {draft.card && (
+            <div className="px-banner">
+              씬 「{draft.card.name}」의 저장된 문구를 사용합니다.
+              <button onClick={() => onChange({ ...draft, card: undefined })}>씬 연결 해제</button>
+            </div>
+          )}
+          <div className="px-order">
+            <SortableItems
+              ids={order}
+              onReorder={(ids) => {
+                // Common and character stay in order; chunks and the trigger block move.
+                const materials = ids.filter((id) => id !== 'triggers')
+                if (materials[0] !== 'common' || materials[1] !== 'character') {
+                  setNotice('공통문과 캐릭터는 앞에 고정됩니다. 청크와 트리거 순서를 바꿔 주세요.')
+                  return
                 }
-              >
-                <div className="px-order-row">
-                  <span>
-                    {id === 'common'
-                      ? commonLabel
-                      : id === 'character'
-                        ? character?.name || '캐릭터 미선택'
-                        : id === 'triggers'
-                          ? 'LoRA 트리거'
+                onChange({
+                  ...draft,
+                  sceneIds: materials.slice(2).map((id) => id.slice(6)),
+                  triggerPosition:
+                    ids.indexOf('triggers') === ids.length - 1 ? 'end' : ids.indexOf('triggers')
+                })
+              }}
+            >
+              {order.map((id) => (
+                <SortableItem
+                  key={id}
+                  id={id}
+                  name={
+                    id === 'triggers'
+                      ? 'LoRA 트리거'
+                      : id === 'common'
+                        ? commonLabel
+                        : id === 'character'
+                          ? '캐릭터'
                           : (completeChunks.find((chunk) => `chunk:${chunk.id}` === id)?.name ??
-                            '연결이 끊긴 청크')}
-                  </span>
-                  {id.startsWith('chunk:') && (
-                    <button
-                      aria-label={`${id.slice(6)} 청크 빼기`}
-                      onClick={() => toggle(id.slice(6))}
-                    >
-                      <X size={14} />
-                    </button>
-                  )}
-                </div>
-              </SortableItem>
-            ))}
-          </SortableItems>
+                            '누락 청크')
+                  }
+                >
+                  <div className="px-order-row">
+                    <span>
+                      {id === 'common'
+                        ? commonLabel
+                        : id === 'character'
+                          ? character?.name || '캐릭터 미선택'
+                          : id === 'triggers'
+                            ? 'LoRA 트리거'
+                            : (completeChunks.find((chunk) => `chunk:${chunk.id}` === id)?.name ??
+                              '연결이 끊긴 청크')}
+                    </span>
+                    {id.startsWith('chunk:') && (
+                      <button
+                        aria-label={`${id.slice(6)} 청크 빼기`}
+                        onClick={() => toggle(id.slice(6))}
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                </SortableItem>
+              ))}
+            </SortableItems>
+          </div>
+          {preset && presetHasText(preset) && (
+            <small>
+              프리셋 「{preset.name}」의 공통 포지·네거가 공통문 블록에 포함됩니다. 미리보기와
+              예약에 같은 문구가 들어갑니다.
+            </small>
+          )}
+          <label>
+            LoRA 트리거 위치
+            <select
+              value={draft.triggerPosition}
+              onChange={(event) =>
+                onChange({
+                  ...draft,
+                  triggerPosition: event.target.value === 'end' ? 'end' : Number(event.target.value)
+                })
+              }
+            >
+              {Array.from({ length: draft.sceneIds.length + 3 }, (_, i) => (
+                <option key={i} value={i}>
+                  {i === 0
+                    ? '맨 앞'
+                    : i === 1
+                      ? '공통문 뒤'
+                      : i === 2
+                        ? '캐릭터 뒤'
+                        : `${i - 2}번째 청크 뒤`}
+                </option>
+              ))}
+              <option value="end">맨 뒤 (씬 추가 문구 포함)</option>
+            </select>
+          </label>
+          <label>
+            전송 미리보기
+            <textarea readOnly value={prompts.prompt} />
+          </label>
+          <details>
+            <summary>네거티브 미리보기</summary>
+            <textarea readOnly aria-label="네거티브 미리보기" value={prompts.negativePrompt} />
+          </details>
         </div>
-        {preset && presetHasText(preset) && (
-          <small>
-            프리셋 「{preset.name}」의 공통 포지·네거가 공통문 블록에 포함됩니다. 미리보기와 예약에
-            같은 문구가 들어갑니다.
-          </small>
-        )}
-        <label>
-          LoRA 트리거 위치
-          <select
-            value={draft.triggerPosition}
-            onChange={(event) =>
-              onChange({
-                ...draft,
-                triggerPosition: event.target.value === 'end' ? 'end' : Number(event.target.value)
+        <footer>
+          <button
+            disabled={busy || !draft.sceneIds.length}
+            onClick={() =>
+              void run(async () => {
+                const card = makeSceneCard(library, {
+                  sceneIds: draft.sceneIds,
+                  triggerPosition: draft.triggerPosition,
+                  imageOptions,
+                  extra: draft.card?.extra
+                })
+                await store.getState().editLibrary((current) => ({
+                  ...current,
+                  sceneCards: [...(current.sceneCards ?? []), card]
+                }))
+                onSceneCreated(card.id)
               })
             }
           >
-            {Array.from({ length: draft.sceneIds.length + 3 }, (_, i) => (
-              <option key={i} value={i}>
-                {i === 0
-                  ? '맨 앞'
-                  : i === 1
-                    ? '공통문 뒤'
-                    : i === 2
-                      ? '캐릭터 뒤'
-                      : `${i - 2}번째 청크 뒤`}
-              </option>
-            ))}
-            <option value="end">맨 뒤 (씬 추가 문구 포함)</option>
-          </select>
-        </label>
-        <label>
-          전송 미리보기
-          <textarea readOnly value={prompts.prompt} />
-        </label>
-        <details>
-          <summary>네거티브 미리보기</summary>
-          <textarea readOnly aria-label="네거티브 미리보기" value={prompts.negativePrompt} />
-        </details>
-        <button
-          disabled={busy || !draft.sceneIds.length}
-          onClick={() =>
-            void run(async () => {
-              const card = makeSceneCard(library, {
-                sceneIds: draft.sceneIds,
-                triggerPosition: draft.triggerPosition,
-                imageOptions,
-                extra: draft.card?.extra
-              })
-              await store.getState().editLibrary((current) => ({
-                ...current,
-                sceneCards: [...(current.sceneCards ?? []), card]
-              }))
-              onSceneCreated(card.id)
-            })
-          }
-        >
-          이 조합으로 씬 만들기
-        </button>
-        <small>
-          청크 순서·트리거 위치·비율을 저장합니다. 캐릭터와 프리셋은 씬에 포함하지 않습니다.
-        </small>
+            이 조합으로 씬 만들기
+          </button>
+          <small>
+            청크 순서·트리거 위치·비율을 저장합니다. 캐릭터와 프리셋은 씬에 포함하지 않습니다.
+          </small>
+        </footer>
       </section>
       <section className="px-pane" aria-label="예약·기록">
         <header>
           <h2>예약·기록</h2>
+          <StageChips stage={1} />
         </header>
         <label>
           이 조합의 생성 횟수
@@ -526,22 +600,33 @@ export function Compose({
               ))
           )}
         </div>
-        {notice && <p role="status">{notice}</p>}
-        <button
-          disabled={busy || !library.reservations.length}
-          onClick={() =>
-            void run(
-              () => store.getState().register(),
-              '로컬 대기열에 등록했습니다. 생성 요청은 보내지 않았습니다.'
-            )
-          }
-        >
-          예약 전부를 대기열에 등록
-        </button>
-        <small>
-          예약 {library.reservations.length}조합 ·{' '}
-          {library.reservations.reduce((sum, item) => sum + item.count, 0)}작업
-        </small>
+        <footer>
+          {notice && <p role="status">{notice}</p>}
+          <button
+            className="px-primary"
+            disabled={busy || !library.reservations.length}
+            onClick={() =>
+              void run(
+                () => store.getState().register(),
+                '로컬 대기열에 등록했습니다. 생성 요청은 보내지 않았습니다.'
+              )
+            }
+          >
+            대기열에 등록 →
+          </button>
+          <small>
+            예약 {library.reservations.length}조합 ·{' '}
+            {library.reservations.reduce((sum, item) => sum + item.count, 0)}작업 ·{' '}
+            {library.reservations.reduce(
+              (sum, item) =>
+                sum +
+                item.count * resolveImageOptions(item.imageOptions, workspace.options).batchSize!,
+              0
+            )}
+            장
+          </small>
+          <small>등록해야 대기열로 갑니다. 유료 생성은 대기열에서 시작합니다.</small>
+        </footer>
       </section>
     </SplitPanes>
   )
@@ -609,7 +694,15 @@ export function ReservationList({
             <summary>
               {items[0].batch.name}
               <small>
-                {items.length}조합 · {items.reduce((sum, item) => sum + item.count, 0)}작업
+                {items.length}조합 · {items.reduce((sum, item) => sum + item.count, 0)}작업 ·{' '}
+                {items.reduce(
+                  (sum, item) =>
+                    sum +
+                    item.count *
+                      resolveImageOptions(item.imageOptions, workspace.options).batchSize!,
+                  0
+                )}
+                장
               </small>
             </summary>
             <button disabled={busy} onClick={() => void remove(items.map((item) => item.id))}>

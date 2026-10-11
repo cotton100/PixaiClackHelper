@@ -44,6 +44,8 @@ export interface ExecutionJob {
   taskId?: string
   outputDir: string
   sourceSceneId?: string
+  batchId?: string
+  batchName?: string
   mediaIds?: string[]
   files: string[]
   error: string

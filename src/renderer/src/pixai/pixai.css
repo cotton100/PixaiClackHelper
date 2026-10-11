@@ -808,49 +808,6 @@
   overflow: auto;
 }
 @media (max-width: 1000px) {
-  .px-panes {
-    display: flex;
-    overflow: auto;
-    flex-direction: column;
-    gap: 12px;
-  }
-  .px-divider {
-    display: none;
-  }
-  .px-pane {
-    flex: none;
-    min-height: 220px;
-    overflow: visible;
-  }
-  .px-pane > .px-scroll {
-    max-height: 370px;
-    flex: none;
-  }
-  .px-app .px-workspace-lock {
-    overflow: auto;
-  }
-  .px-nav {
-    overflow-x: auto;
-    padding-left: 6px;
-    padding-right: 6px;
-  }
-  .px-nav button {
-    padding: 10px 9px;
-    white-space: nowrap;
-  }
-  .px-save-state {
-    display: none;
-  }
-  .px-titlebar > span {
-    display: none;
-  }
-  .px-app-footer {
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-  .px-app-footer > span:last-child {
-    margin-left: 0;
-  }
   .px-settings {
     height: auto;
     grid-template-columns: 1fr;
@@ -858,11 +815,8 @@
   .px-settings > .px-api-connection {
     grid-row: auto;
   }
-  .px-order {
-    max-height: 300px;
-  }
-  .px-selectors .px-button-list {
-    height: 105px;
+  .px-nav button {
+    padding: 8px 6px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -915,4 +869,408 @@
 .px-scene-thumbnail figcaption {
   font-size: 11px;
   text-align: center;
+}
+
+/* Workspace layout: stable actions, one scrolling body per pane. */
+.px-panes > .px-pane {
+  overflow: hidden;
+}
+.px-pane > header,
+.px-pane > footer {
+  flex: none;
+}
+.px-pane > footer {
+  border-top: 1px solid var(--px-line);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.px-pane > .px-scroll {
+  min-height: 0;
+  flex: 1;
+}
+.px-titlebar {
+  height: 44px;
+  gap: 12px;
+  padding: 0 10px;
+}
+.px-titlebar > strong {
+  font-size: 15px;
+  white-space: nowrap;
+}
+.px-nav {
+  -webkit-app-region: no-drag;
+  border: 0;
+  padding: 0;
+  min-height: 0;
+  height: 44px;
+  flex: 1;
+  min-width: 0;
+}
+.px-nav button {
+  padding: 8px 10px;
+  white-space: nowrap;
+}
+.px-nav svg {
+  width: 16px;
+}
+.px-content {
+  padding: 10px;
+}
+.px-stages {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--px-muted);
+}
+.px-stages [aria-current] {
+  color: var(--px-accent);
+  font-weight: 700;
+}
+.px-material-body > * + * {
+  margin-top: 10px;
+}
+.px-selection-summary {
+  display: grid;
+  gap: 3px;
+}
+.px-selection-summary button {
+  justify-content: space-between;
+  padding: 5px 8px;
+}
+.px-selection-summary strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.px-image-summary {
+  border: 1px solid var(--px-line);
+  border-radius: 6px;
+  padding: 0 8px;
+}
+.px-image-summary > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 12px;
+}
+.px-image-summary .px-edit-label {
+  color: var(--px-accent);
+  white-space: nowrap;
+}
+.px-image-summary .px-ratio-mark small {
+  display: inline;
+}
+.px-material-list {
+  display: grid;
+  gap: 4px;
+}
+.px-selected-materials button {
+  margin: 2px;
+  font-size: 12px;
+}
+.px-material-body .px-folder-content button {
+  width: 100%;
+  justify-content: flex-start;
+}
+.px-image-scope {
+  padding-bottom: 6px;
+}
+@media (max-width: 1100px) {
+  .px-titlebar > strong {
+    max-width: 100px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .px-save-state {
+    display: none;
+  }
+}
+
+.px-pane-slot,
+.px-pane-content {
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+.px-pane-content > .px-pane {
+  height: 100%;
+  overflow: hidden;
+}
+.px-pane-rail {
+  height: 100%;
+  width: 36px;
+  writing-mode: vertical-rl;
+  padding: 6px !important;
+}
+.px-pane-content > .px-pane > header {
+  flex-wrap: wrap;
+}
+.px-editor-layout {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 8px;
+}
+.px-editor-layout > .px-scroll {
+  min-height: 0;
+}
+.px-editor-layout > footer {
+  border-top: 1px solid var(--px-line);
+  padding-top: 8px;
+  flex: none;
+}
+.px-editor-layout .px-scene-chunk-picker {
+  max-height: none;
+  overflow: visible;
+}
+.px-scene-collection.is-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr));
+  gap: 8px;
+  align-items: start;
+}
+.px-scene-collection .px-scene-card {
+  padding: 8px;
+  min-width: 0;
+  position: relative;
+}
+.px-scene-collection .px-scene-thumbnail {
+  float: none;
+  width: 100%;
+  height: 96px;
+  margin: 0 0 6px;
+}
+.px-scene-collection .px-scene-thumbnail img {
+  min-height: 0;
+  flex: 1;
+}
+.px-scene-collection .px-check strong {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.px-scene-collection.is-list .px-scene-thumbnail {
+  width: 72px;
+  height: 80px;
+  float: right;
+  margin: 0 0 4px 8px;
+}
+.px-card-menu > summary {
+  padding: 2px 5px;
+  color: var(--px-accent);
+}
+.px-menu-items {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.px-menu-items button {
+  justify-content: flex-start;
+}
+.px-group-chips {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  flex: none;
+  padding-bottom: 4px;
+}
+.px-group-chips button {
+  flex: none;
+}
+.px-matrix {
+  max-height: 220px;
+}
+.px-matrix thead th {
+  position: sticky;
+  top: 0;
+  background: var(--px-surface);
+  z-index: 2;
+}
+.px-matrix th:first-child {
+  position: sticky;
+  left: 0;
+  background: var(--px-surface);
+}
+.px-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.px-material-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.px-material-row .px-library-item {
+  flex: 1;
+  min-width: 0;
+}
+.px-bulk-tools {
+  padding: 6px;
+  border: 1px solid var(--px-line);
+  border-radius: 6px;
+}
+.px-lora-row {
+  display: grid;
+  grid-template-columns: minmax(60px, 1fr) minmax(80px, 1.4fr) 70px;
+  gap: 6px;
+}
+.px-drop-target {
+  outline: 2px solid var(--px-accent);
+  outline-offset: -2px;
+}
+.px-preview-text {
+  white-space: pre-wrap;
+}
+.px-status-chip {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--px-raised);
+  color: var(--px-text);
+}
+.px-status-chip.is-done {
+  color: #8fd8c6;
+  background: #243e35;
+}
+.px-status-chip.is-attention {
+  color: #eacb8d;
+  background: #423a25;
+}
+.px-status-chip.is-failed {
+  color: #ffc3b7;
+  background: #472f2b;
+}
+.px-status-chip.is-active {
+  color: #a5d3ef;
+  background: #263d49;
+}
+.px-queue-group > summary {
+  border-bottom: 1px solid var(--px-line);
+}
+.px-app input[type='radio'] {
+  width: 16px !important;
+  accent-color: var(--px-accent);
+}
+
+/* Keep material picking visible at laptop scaling; preserve the 14px reading size. */
+.px-material-body > * + * {
+  margin-top: 6px;
+}
+.px-selection-summary button {
+  padding: 2px 8px;
+}
+.px-image-summary > summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 3px 8px;
+  font-weight: 400;
+}
+.px-image-summary > summary > span:first-child {
+  min-width: 0;
+}
+.px-image-summary .px-image-scope {
+  grid-row: 2;
+  grid-column: 1;
+  padding: 0;
+}
+.px-image-summary .px-edit-label {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+}
+.px-image-summary .px-ratio-mark svg {
+  width: 23px;
+  height: 23px;
+}
+.px-material-body .px-generation-extra summary {
+  padding: 3px 0;
+}
+.px-material-body .px-subtabs button {
+  padding: 4px 8px;
+}
+.px-selected-materials > summary {
+  padding: 3px 0;
+}
+.px-scene-tools {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+}
+.px-scene-tools > .px-toolbar {
+  flex: none;
+}
+.px-scene-help {
+  line-height: 1.3;
+}
+.px-scene-card > .px-check {
+  margin: 4px 0;
+}
+.px-scene-card > .px-check input {
+  position: absolute;
+  left: 12px;
+  top: 10px;
+  z-index: 1;
+}
+.px-scene-card > .px-card-menu {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  z-index: 2;
+}
+.px-scene-card > .px-card-menu > summary {
+  background: var(--px-surface);
+  border-radius: 4px;
+  list-style: none;
+}
+.px-card-menu[open] {
+  min-width: 155px;
+  padding: 5px;
+  border: 1px solid var(--px-line);
+  background: var(--px-surface);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px #0006;
+}
+.px-scene-card > .px-group-name {
+  margin: 2px 0;
+  font-size: 11px;
+}
+.px-scene-card .px-ratio-mark svg {
+  width: 20px;
+  height: 20px;
+}
+.px-scene-collection.is-list .px-scene-card > .px-check input {
+  position: static;
+}
+.px-scene-collection.is-list .px-card-menu {
+  position: static;
+}
+.px-queue {
+  overflow: hidden;
+}
+
+.px-unsaved-dialog {
+  position: fixed;
+  z-index: 1000;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  width: min(440px, calc(100vw - 32px));
+  padding: 20px;
+  background: #202828;
+  box-shadow: 0 0 0 100vmax #0009;
+}
+
+.px-unsaved-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: #0009;
 }

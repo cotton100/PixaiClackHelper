@@ -96,11 +96,11 @@ describe('PixAIS scene UI uses the fixed batch core', () => {
     Object.defineProperty(window, 'nais', { configurable: true, value: { invoke } })
     try {
       await renderScenes()
-      expect(container.querySelector('img[alt="웃음 최근 생성 이미지"]')?.getAttribute('src')).toBe(
+      expect(container.querySelector('img[alt="웃음 최근 결과 이미지"]')?.getAttribute('src')).toBe(
         dataUrl
       )
       expect(container.querySelector('[aria-label="손 흔듦 생성 결과"]')?.textContent).toContain(
-        '생성 후 표시'
+        '생성 전 (결과 없음)'
       )
       await act(async () =>
         store.getState().editLibrary((library) => ({
@@ -110,14 +110,14 @@ describe('PixAIS scene UI uses the fixed batch core', () => {
           )
         }))
       )
-      expect(container.querySelector('img[alt="밝은 웃음 최근 생성 이미지"]')).not.toBeNull()
+      expect(container.querySelector('img[alt="밝은 웃음 최근 결과 이미지"]')).not.toBeNull()
       await click('밝은 웃음 복제')
       expect(
         container.querySelector('[aria-label="밝은 웃음 사본 생성 결과"]')?.textContent
-      ).toContain('생성 후 표시')
+      ).toContain('생성 전 (결과 없음)')
       await act(async () => container.querySelector('img')!.dispatchEvent(new Event('error')))
       expect(container.querySelector('[aria-label="밝은 웃음 생성 결과"]')?.textContent).toContain(
-        '미리보기 없음'
+        '미리보기 불러오기 실패'
       )
       expect(invoke).toHaveBeenCalledWith('pixai:scene-thumbnails', { revision: undefined })
     } finally {
@@ -182,7 +182,7 @@ describe('PixAIS scene UI uses the fixed batch core', () => {
     await input('캐릭터·출연 검색', 'Cara')
     expect(button('캐릭터 폴더 미분류').getAttribute('aria-expanded')).toBe('true')
     expect(field('행 Cara')).not.toBeNull()
-    expect(field('행 Bob')).toBeNull()
+    expect(field('행 Bob').closest('.px-selected-rows')).not.toBeNull()
     await click('행 전체 선택')
     await input('캐릭터·출연 검색', '')
     await click('캐릭터 폴더 주연')
@@ -226,7 +226,7 @@ describe('PixAIS scene UI uses the fixed batch core', () => {
       }))
     )
     expect(button('캐릭터 폴더 새 폴더').getAttribute('aria-expanded')).toBe('false')
-    expect(field('행 Alice')).toBeNull()
+    expect(field('행 Alice').closest('.px-selected-rows')).not.toBeNull()
     await input('캐릭터·출연 검색', 'alice')
     expect(button('캐릭터 폴더 새 폴더').getAttribute('aria-expanded')).toBe('true')
     expect(field('행 Alice').checked).toBe(true)

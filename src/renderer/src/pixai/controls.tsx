@@ -1,5 +1,5 @@
 import { RatioMark } from './ratio-mark'
-import { Children, useRef, useState, type ReactNode } from 'react'
+import { Children, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   DndContext,
   KeyboardSensor,
@@ -13,6 +13,7 @@ import {
   arrayMove,
   sortableKeyboardCoordinates,
   useSortable,
+  rectSortingStrategy,
   verticalListSortingStrategy
 } from '@dnd-kit/sortable'
 import { GripVertical } from 'lucide-react'
@@ -22,22 +23,58 @@ export function SplitPanes({
   name,
   widths: saved,
   onSave,
-  children
+  children,
+  collapsed,
+  onCollapse,
+  labels = ['재료', '편집', '미리보기']
 }: {
   name: string
   widths?: number[]
   onSave: (widths: number[]) => void
   children: ReactNode
+  collapsed?: number
+  onCollapse?: (index: number) => void
+  labels?: string[]
 }): React.JSX.Element {
-  const [widths, setWidths] = useState(saved ?? [30, 36, 34])
+  const defaults = name === '씬' ? [27, 43, 30] : name === '조합' ? [31, 36, 33] : [30, 40, 30]
+  const [widths, setWidths] = useState(saved ?? defaults)
+  const [localCollapsed, setCollapsed] = useState(name === '씬' ? 0 : name === '조합' ? 1 : 2)
+  const [size, setSize] = useState(1440)
   const frame = useRef<HTMLDivElement>(null)
   const drag = useRef<{ index: number; x: number; widths: number[] } | null>(null)
   const latest = useRef(widths)
+  const collapsedIndex = collapsed ?? localCollapsed
+  const narrow = size <= 1100
+  useEffect(() => {
+    if (saved && !drag.current) {
+      setWidths(saved)
+      latest.current = saved
+    }
+  }, [saved])
+  useEffect(() => {
+    if (!frame.current || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width
+      if (width > 0) setSize(width)
+    })
+    observer.observe(frame.current)
+    return () => observer.disconnect()
+  }, [])
   function change(index: number, delta: number, start = widths): number[] {
+    const visible = [0, 1, 2].filter((i) => !narrow || i !== collapsedIndex)
+    const left = narrow ? visible[0] : index,
+      right = narrow ? visible[1] : index + 1
+    const available = Math.max(1, size - 16 - (narrow ? 36 : 0))
+    const total = start[left] + start[right]
+    const pixels = narrow ? available : (available * total) / 100
+    const mins = [260, 320, 300]
+    const scale = Math.min(1, pixels / (mins[left] + mins[right]))
+    const minLeft = ((mins[left] * scale) / pixels) * total
+    const minRight = ((mins[right] * scale) / pixels) * total
+    const adjustment = Math.max(minLeft - start[left], Math.min(start[right] - minRight, delta))
     const next = [...start]
-    const adjustment = Math.max(18 - next[index], Math.min(next[index + 1] - 18, delta))
-    next[index] += adjustment
-    next[index + 1] -= adjustment
+    next[left] += adjustment
+    next[right] -= adjustment
     latest.current = next
     setWidths(next)
     return next
@@ -46,22 +83,49 @@ export function SplitPanes({
     <div
       className="px-panes"
       ref={frame}
-      style={{ gridTemplateColumns: `${widths[0]}fr 8px ${widths[1]}fr 8px ${widths[2]}fr` }}
+      data-narrow={narrow}
+      style={{
+        gridTemplateColumns: [0, 1, 2]
+          .map((i) =>
+            narrow && i === collapsedIndex
+              ? '36px'
+              : narrow
+                ? widths[i] + 'fr'
+                : 'minmax(' + [260, 320, 300][i] + 'px,' + widths[i] + 'fr)'
+          )
+          .join(' 8px ')
+      }}
     >
-      {Children.toArray(children).flatMap((child, index) =>
-        index === 2
-          ? [child]
+      {Children.toArray(children).flatMap((child, index) => [
+        <div key={'pane-' + index} className="px-pane-slot">
+          <button
+            className="px-pane-rail"
+            hidden={!narrow || collapsedIndex !== index}
+            aria-label={labels[index] + ' 펼치기'}
+            onClick={() => {
+              const next = index === 2 ? 0 : 2
+              setCollapsed(next)
+              onCollapse?.(next)
+            }}
+          >
+            {labels[index]}
+          </button>
+          <div className="px-pane-content" hidden={narrow && collapsedIndex === index}>
+            {child}
+          </div>
+        </div>,
+        ...(index === 2
+          ? []
           : [
-              child,
               <div
-                key={`divider-${index}`}
+                key={'divider-' + index}
                 className="px-divider"
                 role="separator"
                 tabIndex={0}
-                aria-label={`${name} ${index + 1} 칸 너비`}
+                aria-label={name + ' ' + (index + 1) + ' 칸 너비'}
                 aria-orientation="vertical"
-                aria-valuemin={18}
-                aria-valuemax={64}
+                aria-valuemin={5}
+                aria-valuemax={90}
                 aria-valuenow={Math.round(widths[index])}
                 onKeyDown={(event) => {
                   if (['ArrowLeft', 'ArrowRight'].includes(event.key)) {
@@ -70,15 +134,16 @@ export function SplitPanes({
                   }
                 }}
                 onPointerDown={(event) => {
+                  if (drag.current) return
                   event.preventDefault()
                   event.currentTarget.setPointerCapture(event.pointerId)
                   drag.current = { index, x: event.clientX, widths: [...widths] }
                 }}
                 onPointerMove={(event) => {
-                  if (drag.current && frame.current)
+                  if (drag.current)
                     change(
                       drag.current.index,
-                      ((event.clientX - drag.current.x) / frame.current.clientWidth) * 100,
+                      ((event.clientX - drag.current.x) / size) * 100,
                       drag.current.widths
                     )
                 }}
@@ -91,12 +156,13 @@ export function SplitPanes({
                 onPointerCancel={() => {
                   if (drag.current) {
                     setWidths(drag.current.widths)
+                    latest.current = drag.current.widths
                     drag.current = null
                   }
                 }}
               />
-            ]
-      )}
+            ])
+      ])}
     </div>
   )
 }
@@ -104,10 +170,14 @@ export function SplitPanes({
 export function SortableItems({
   ids,
   onReorder,
+  onDrop,
+  grid = false,
   children
 }: {
   ids: string[]
   onReorder: (ids: string[]) => void
+  grid?: boolean
+  onDrop?: (id: string, target: string) => boolean
   children: ReactNode
 }): React.JSX.Element {
   const sensors = useSensors(
@@ -120,12 +190,16 @@ export function SortableItems({
       collisionDetection={closestCenter}
       onDragEnd={({ active, over }) => {
         if (!over || active.id === over.id) return
+        if (onDrop?.(String(active.id), String(over.id))) return
         const from = ids.indexOf(String(active.id)),
           to = ids.indexOf(String(over.id))
         if (from >= 0 && to >= 0) onReorder(arrayMove(ids, from, to))
       }}
     >
-      <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+      <SortableContext
+        items={ids}
+        strategy={grid ? rectSortingStrategy : verticalListSortingStrategy}
+      >
         {children}
       </SortableContext>
     </DndContext>
@@ -328,5 +402,47 @@ export function PromptFields({
         />
       </label>
     </>
+  )
+}
+
+export function StageChips({ stage }: { stage: 1 | 2 | 3 }): React.JSX.Element {
+  return (
+    <span className="px-stages" aria-label="작업 단계">
+      {['예약', '등록', '시작'].map((label, index) => (
+        <span key={label} aria-current={stage === index + 1 ? 'step' : undefined}>
+          {index + 1} {label}
+        </span>
+      ))}
+    </span>
+  )
+}
+export function ImageSummary({
+  scope,
+  children,
+  ...props
+}: React.ComponentProps<typeof ImagePicker> & {
+  scope?: string
+  children?: ReactNode
+}): React.JSX.Element {
+  return (
+    <details className="px-image-summary">
+      <summary>
+        <span>
+          {props.value ? (
+            <>
+              <RatioMark ratio={props.value.aspectRatio} /> · {props.value.size} ·{' '}
+              {props.value.batchSize ?? '기본'}장 · {props.value.mode || '모델 기본값'}
+            </>
+          ) : (
+            (props.inheritLabel ?? '기본 이미지 설정 따름')
+          )}
+        </span>
+        {scope && <small className="px-image-scope">{scope}</small>}
+        <span className="px-edit-label">변경</span>
+      </summary>
+
+      <ImagePicker {...props} />
+      {children}
+    </details>
   )
 }

@@ -18,7 +18,7 @@ export function SceneThumbnailView({
       {available ? (
         <img
           src={image.dataUrl}
-          alt={`${name} 최근 생성 이미지`}
+          alt={`${name} 최근 결과 이미지`}
           loading="lazy"
           onError={() => setFailedUrl(image.dataUrl)}
         />
@@ -26,7 +26,7 @@ export function SceneThumbnailView({
         <ImageIcon size={23} aria-hidden="true" />
       )}
       <figcaption>
-        {available ? '최근 생성' : error || image ? '미리보기 없음' : '생성 후 표시'}
+        {available ? '최근 결과' : error || image ? '미리보기 불러오기 실패' : '생성 전 (결과 없음)'}
       </figcaption>
     </figure>
   )

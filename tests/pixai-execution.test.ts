@@ -255,3 +255,25 @@ describe('PixAI generation boundary', () => {
     expect(() => unavailable.connect('test', true)).toThrow('보호 저장')
   })
 })
+
+it('preserves reservation batch identity through runner persistence and a restart without adding API payload fields', async () => {
+  const { runner, io, saved } = fixture()
+  const input = job()
+  input.request.composition.reservation.batch = {
+    id: 'b1',
+    name: '표정 묶음',
+    rowName: 'Alice',
+    columnName: '웃음'
+  }
+  runner.start([input], '/output', 1)
+  await finished(runner)
+  expect(runner.status().jobs[0]).toMatchObject({
+    batchId: 'b1',
+    batchName: '표정 묶음',
+    state: 'done'
+  })
+  expect(runner.status().jobs[0].payload).not.toHaveProperty('batchId')
+  const restarted = new PixaiRunner({ ...io, read: () => saved() })
+  expect(restarted.status().jobs[0]).toMatchObject({ batchId: 'b1', batchName: '표정 묶음' })
+  expect(io.create).toHaveBeenCalledTimes(1)
+})

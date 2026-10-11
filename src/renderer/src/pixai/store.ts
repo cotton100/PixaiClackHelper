@@ -98,7 +98,7 @@ export function readWorkspace(text: string | null): Workspace {
     library: strictLibrary(raw.library),
     options: normalizeSettingsOptions(raw.options),
     jobs,
-    widths,
+    widths: { ...widths, ...normalizeSettingsOptions(raw.options).ui?.paneRatios },
     ...(raw.composeDraft === undefined ? {} : { composeDraft: readComposeDraft(raw.composeDraft) })
   }
 }
@@ -115,7 +115,7 @@ interface PixaiState {
   saveDraft(draft: ComposeDraft): Promise<void>
   editLibrary(update: (library: Library) => Library): Promise<void>
   importBackup(backup: SettingsBackup, expectedRevision: number): Promise<void>
-  reserve(plan: BatchPlan): Promise<BatchExpansion>
+  reserve(plan: BatchPlan, registerNow?: boolean): Promise<BatchExpansion>
   register(): Promise<void>
   clearError(): void
 }
@@ -230,10 +230,11 @@ export function createPixaiStore(
           ...workspace,
           library: backup.library,
           options: backup.options,
+          widths: { ...backup.options.ui?.paneRatios },
           composeDraft: undefined
         }
       }),
-    reserve: async (plan) => {
+    reserve: async (plan, registerNow = false) => {
       let expansion: BatchExpansion | undefined
       await get().commit((workspace) => {
         expansion = expandBatchPlan(workspace.library, plan, {
@@ -261,43 +262,84 @@ export function createPixaiStore(
           throw new Error(
             '대기열과 예약을 합쳐 1,000작업까지 담을 수 있습니다. 기존 작업을 정리해 주세요.'
           )
-        return { ...workspace, library: appendBatchReservations(workspace.library, expansion) }
+        const next = {
+          ...workspace,
+          library: appendBatchReservations(workspace.library, expansion)
+        }
+        return registerNow
+          ? registerWorkspace(
+              next,
+              expansion.reservations.map((item) => item.id)
+            )
+          : next
       })
       return expansion!
     },
-    register: () =>
-      get().commit((workspace) => {
-        if (!workspace.library.reservations.length) throw new Error('등록할 예약이 없습니다.')
-        const jobs = expandReservations(workspace.library, {
-          titlePrefix: workspace.options.filePrefix
-        })
-        if (workspace.jobs.length + jobs.length > 1000)
-          throw new Error('대기열은 1,000작업까지 담을 수 있습니다.')
-        // Freeze old unsnapshotted reservations too; importing a new library must
-        // never change the material of a job already registered.
-        for (const job of jobs) {
-          const material = job.composition
-          material.reservation.snapshot ??= {
-            common: material.common,
-            preset: material.preset,
-            character: material.character,
-            chunks: material.chunks
-          }
-        }
-        return {
-          ...workspace,
-          library: { ...workspace.library, reservations: [] },
-          jobs: [
-            ...workspace.jobs,
-            ...jobs.map((request) => ({
-              request,
-              imageCount: request.imageOptions?.batchSize ?? workspace.options.imageCount ?? 0,
-              options: structuredClone(workspace.options)
-            }))
-          ]
-        }
-      })
+    register: () => get().commit((workspace) => registerWorkspace(workspace))
   }))
 }
 export const usePixaiStore = createPixaiStore()
 export type PixaiStore = ReturnType<typeof createPixaiStore>
+
+export function savePaneUI(
+  store: PixaiStore,
+  name: 'compose' | 'scenes' | 'library',
+  widths?: number[],
+  collapsed?: number
+): Promise<void> {
+  return store.getState().commit((current) => ({
+    ...current,
+    widths: widths ? { ...current.widths, [name]: widths } : current.widths,
+    options: {
+      ...current.options,
+      ui: {
+        ...current.options.ui,
+        ...(widths ? { paneRatios: { ...current.options.ui?.paneRatios, [name]: widths } } : {}),
+        ...(collapsed !== undefined
+          ? { collapsedPane: { ...current.options.ui?.collapsedPane, [name]: collapsed } }
+          : {})
+      }
+    }
+  }))
+}
+
+function registerWorkspace(workspace: Workspace, ids?: string[]): Workspace {
+  if (!workspace.library.reservations.length) throw new Error('등록할 예약이 없습니다.')
+  const reservations = ids
+    ? workspace.library.reservations.filter((item) => ids.includes(item.id))
+    : workspace.library.reservations
+  const jobs = expandReservations(
+    { ...workspace.library, reservations },
+    {
+      titlePrefix: workspace.options.filePrefix
+    }
+  )
+  if (workspace.jobs.length + jobs.length > 1000)
+    throw new Error('대기열은 1,000작업까지 담을 수 있습니다.')
+  // Freeze old unsnapshotted reservations too; importing a new library must
+  // never change the material of a job already registered.
+  for (const job of jobs) {
+    const material = job.composition
+    material.reservation.snapshot ??= {
+      common: material.common,
+      preset: material.preset,
+      character: material.character,
+      chunks: material.chunks
+    }
+  }
+  return {
+    ...workspace,
+    library: {
+      ...workspace.library,
+      reservations: workspace.library.reservations.filter((item) => !reservations.includes(item))
+    },
+    jobs: [
+      ...workspace.jobs,
+      ...jobs.map((request) => ({
+        request,
+        imageCount: request.imageOptions?.batchSize ?? workspace.options.imageCount ?? 0,
+        options: structuredClone(workspace.options)
+      }))
+    ]
+  }
+}

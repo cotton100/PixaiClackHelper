@@ -1,3 +1,4 @@
+import { StageChips } from './controls'
 import { RatioMark } from './ratio-mark'
 import { useEffect, useState } from 'react'
 import type { ConnectionStatus, JobState, RunnerStatus } from '@shared/pixai/execution'
@@ -174,6 +175,7 @@ export function ExecutionQueue({ store }: { store: PixaiStore }): React.JSX.Elem
       clearTimeout(timer)
     }
   }, [browser])
+  const [filter, setFilter] = useState('all')
   const records = new Map(status?.jobs.map((job) => [job.id, job]))
   const items = [
     ...workspace.jobs.map((job) => ({
@@ -181,7 +183,11 @@ export function ExecutionQueue({ store }: { store: PixaiStore }): React.JSX.Elem
       title: job.request.title,
       prompt: job.request.prompt,
       ratio: job.request.imageOptions?.aspectRatio ?? String(job.options.api?.aspectRatio ?? '1:1'),
-      images: job.imageCount
+      images: job.imageCount,
+      batchId:
+        job.request.composition.reservation.batch?.id ?? records.get(job.request.id)?.batchId,
+      batchName:
+        job.request.composition.reservation.batch?.name ?? records.get(job.request.id)?.batchName
     })),
     ...(status?.jobs ?? [])
       .filter(
@@ -194,9 +200,32 @@ export function ExecutionQueue({ store }: { store: PixaiStore }): React.JSX.Elem
         title: job.title,
         prompt: job.payload.prompt,
         ratio: job.payload.aspectRatio,
-        images: job.payload.batchSize
+        images: job.payload.batchSize,
+        batchId: job.batchId,
+        batchName: job.batchName
       }))
   ]
+  const category = (id: string): string => {
+    const state = records.get(id)?.state ?? 'queued'
+    if (['submitting', 'waiting', 'saving'].includes(state)) return 'active'
+    if (['submission_unknown', 'check_required', 'save_failed'].includes(state)) return 'attention'
+    return state
+  }
+  const categories = [
+    ['all', '전체'],
+    ['queued', '제출 대기'],
+    ['active', '진행'],
+    ['attention', '확인 필요'],
+    ['failed', '실패'],
+    ['done', '저장 완료'],
+    ['cancelled', '제외됨']
+  ]
+  const visible = items.filter((item) => filter === 'all' || category(item.id) === filter)
+  const groups = new Map<string, typeof items>()
+  for (const item of visible) {
+    const key = item.batchId ?? ''
+    groups.set(key, [...(groups.get(key) ?? []), item])
+  }
   const newJobs = items.filter(
     (job) => !records.has(job.id) || records.get(job.id)?.state === 'queued'
   )
@@ -218,6 +247,7 @@ export function ExecutionQueue({ store }: { store: PixaiStore }): React.JSX.Elem
     <section className="px-pane px-queue">
       <header>
         <h2>생성 대기열</h2>
+        <StageChips stage={3} />
         <div className="px-toolbar">
           <button
             className="px-primary"
@@ -301,14 +331,28 @@ export function ExecutionQueue({ store }: { store: PixaiStore }): React.JSX.Elem
           <button onClick={() => setConfirm(false)}>취소</button>
         </div>
       )}
+      <div className="px-group-chips" aria-label="대기열 상태 필터">
+        {categories.map(([key, label]) => (
+          <button
+            key={key}
+            aria-pressed={filter === key}
+            onClick={() => {
+              setFilter(key)
+              setSelected([])
+            }}
+          >
+            {label} {items.filter((item) => key === 'all' || category(item.id) === key).length}
+          </button>
+        ))}
+      </div>
       <div className="px-toolbar">
         <label className="px-check">
           <input
             type="checkbox"
-            checked={!!items.length && selected.length === items.length}
-            onChange={(e) => setSelected(e.target.checked ? items.map((job) => job.id) : [])}
+            checked={!!visible.length && visible.every((item) => selected.includes(item.id))}
+            onChange={(e) => setSelected(e.target.checked ? visible.map((job) => job.id) : [])}
           />
-          전체 선택
+          현재 목록 전체 선택
         </label>
         <button
           disabled={disabled || status?.running || !selected.length}
@@ -359,91 +403,115 @@ export function ExecutionQueue({ store }: { store: PixaiStore }): React.JSX.Elem
         </p>
       )}
       <div className="px-scroll">
-        {items.map((job) => {
-          const record = records.get(job.id)
-          return (
-            <article className="px-queue-item" key={job.id}>
-              <label className="px-check">
-                <input
-                  type="checkbox"
-                  checked={selected.includes(job.id)}
-                  onChange={(e) =>
-                    setSelected(
-                      e.target.checked
-                        ? [...selected, job.id]
-                        : selected.filter((id) => id !== job.id)
-                    )
-                  }
-                />
-                <strong>{job.title}</strong>
-              </label>
+        {[...groups].map(([id, entries]) => (
+          <details className="px-queue-group" key={id} open>
+            <summary>
+              {entries[0].batchName || '개별 작업'} · {entries.length}작업{' '}
               <small>
-                {record ? labels[record.state] : '등록됨 · 미제출'} · {job.images || '미지정'}장 ·
-                가로:세로 <RatioMark ratio={job.ratio} />
-                {record?.taskId ? ` · 작업 ID ${record.taskId}` : ''}
+                {categories
+                  .slice(1)
+                  .map(([key, label]) => {
+                    const count = entries.filter((item) => category(item.id) === key).length
+                    return count ? label + ' ' + count : ''
+                  })
+                  .filter(Boolean)
+                  .join(' · ')}
               </small>
-              {record?.error && <p className="px-error">{record.error}</p>}
-              {record?.state === 'submission_unknown' && (
-                <div className="px-confirm">
-                  <p>
-                    응답이 끊겨 서버 제출 여부를 모릅니다. 이미 알려진 작업의 저장은 재개할 수
-                    있지만 새 생성은 보류합니다.
-                  </p>
-                  {dismiss !== job.id ? (
-                    <button
-                      disabled={disabled || status?.running}
-                      onClick={() => setDismiss(job.id)}
-                    >
-                      이 작업 보류 종료…
-                    </button>
-                  ) : (
-                    <>
+            </summary>
+            {entries.map((job) => {
+              const record = records.get(job.id)
+              return (
+                <article className="px-queue-item" key={job.id}>
+                  <label className="px-check">
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(job.id)}
+                      onChange={(e) =>
+                        setSelected(
+                          e.target.checked
+                            ? [...selected, job.id]
+                            : selected.filter((id) => id !== job.id)
+                        )
+                      }
+                    />
+                    <strong>{job.title}</strong>
+                  </label>
+                  <small>
+                    <span className={'px-status-chip is-' + category(job.id)}>
+                      {record ? labels[record.state] : '등록됨 · 미제출'}
+                    </span>{' '}
+                    · {job.images || '미지정'}장 · 가로:세로 <RatioMark ratio={job.ratio} />
+                    {record?.taskId ? ` · 작업 ID ${record.taskId}` : ''}
+                  </small>
+                  {record?.error && <p className="px-error">{record.error}</p>}
+                  {record?.state === 'submission_unknown' && (
+                    <div className="px-confirm">
                       <p>
-                        PixAI에서 결과를 직접 확인해 주세요. 이 조작은 서버 작업을 취소하지 않으며
-                        이 작업을 다시 제출하지 않습니다. 기록은 남기고 다른 작업의 새 생성을
-                        허용합니다.
+                        응답이 끊겨 서버 제출 여부를 모릅니다. 이미 알려진 작업의 저장은 재개할 수
+                        있지만 새 생성은 보류합니다.
                       </p>
-                      <button
-                        disabled={disabled || status?.running}
-                        onClick={() =>
-                          void action(async () => {
-                            setStatus(
-                              await window.nais.invoke('pixai:dismiss-unknown', {
-                                id: job.id,
-                                acknowledged: true
+                      {dismiss !== job.id ? (
+                        <button
+                          disabled={disabled || status?.running}
+                          onClick={() => setDismiss(job.id)}
+                        >
+                          이 작업 보류 종료…
+                        </button>
+                      ) : (
+                        <>
+                          <p>
+                            PixAI에서 결과를 직접 확인해 주세요. 이 조작은 서버 작업을 취소하지
+                            않으며 이 작업을 다시 제출하지 않습니다. 기록은 남기고 다른 작업의 새
+                            생성을 허용합니다.
+                          </p>
+                          <button
+                            disabled={disabled || status?.running}
+                            onClick={() =>
+                              void action(async () => {
+                                setStatus(
+                                  await window.nais.invoke('pixai:dismiss-unknown', {
+                                    id: job.id,
+                                    acknowledged: true
+                                  })
+                                )
+                                setDismiss('')
                               })
-                            )
-                            setDismiss('')
-                          })
-                        }
-                      >
-                        확인했습니다 · 재제출 없이 보류 종료
-                      </button>
-                      <button onClick={() => setDismiss('')}>닫기</button>
-                    </>
+                            }
+                          >
+                            확인했습니다 · 재제출 없이 보류 종료
+                          </button>
+                          <button onClick={() => setDismiss('')}>닫기</button>
+                        </>
+                      )}
+                    </div>
                   )}
-                </div>
-              )}
-              {!!record?.files.length && (
-                <p>
-                  저장 {record.files.length}/{record.payload.batchSize}장
-                </p>
-              )}
-              <details>
-                <summary>저장된 조합·파일 확인</summary>
-                <p>{job.prompt}</p>
-                {record && <p className="px-path">남은 이미지 저장 위치: {record.outputDir}</p>}
-                {record?.files.map((file) => (
-                  <p className="px-path" key={file}>
-                    {file}
-                  </p>
-                ))}
-              </details>
-            </article>
-          )
-        })}
+                  {!!record?.files.length && (
+                    <p>
+                      저장 {record.files.length}/{record.payload.batchSize}장
+                    </p>
+                  )}
+                  <details>
+                    <summary>저장된 조합·파일 확인</summary>
+                    <p>{job.prompt}</p>
+                    {record && <p className="px-path">남은 이미지 저장 위치: {record.outputDir}</p>}
+                    {record?.files.map((file) => (
+                      <p className="px-path" key={file}>
+                        {file}
+                      </p>
+                    ))}
+                  </details>
+                </article>
+              )
+            })}
+          </details>
+        ))}
         {!items.length && <p className="px-empty">조합 예약에서 예약을 대기열에 등록하세요.</p>}
       </div>
+      <footer>
+        <small>
+          목록 삭제는 이미지 파일을 지우지 않습니다. 제출된 미완료 작업은 삭제할 수 없습니다.
+        </small>
+      </footer>
     </section>
   )
 }
