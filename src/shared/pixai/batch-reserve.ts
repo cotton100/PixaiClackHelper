@@ -22,6 +22,7 @@ import {
   normalizeBatchPlan,
   normalizeImageOptions,
   normalizeLibrary,
+  resolvePresetCommon,
   normalizeSnapshot,
   normalizeTriggerPosition,
   presetIdentifier,
@@ -297,7 +298,7 @@ export function expandBatchPlan(
         sourceSceneId: column.id,
         count,
         snapshot: normalizeSnapshot({
-          common: library.common,
+          common: resolvePresetCommon(library, preset),
           preset,
           character,
           chunks: column.chunks,

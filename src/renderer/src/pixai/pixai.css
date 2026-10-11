@@ -1274,3 +1274,47 @@
   z-index: 1000;
   background: #0009;
 }
+
+.px-material-preview {
+  display: block;
+  min-width: 0;
+  width: 100%;
+  font-weight: 400;
+  text-align: left;
+}
+.px-material-preview small {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+  margin-top: 3px;
+}
+.px-material-preview .px-preview-tags {
+  -webkit-line-clamp: 2;
+}
+.px-material-preview .px-preview-config,
+.px-material-preview .px-preview-negative {
+  -webkit-line-clamp: 1;
+}
+.px-preview-negative {
+  opacity: 0.8;
+}
+.px-material-pick {
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  text-align: left;
+}
+.px-material-copy {
+  min-width: 0;
+  flex: 1;
+}
+.px-check:has(.px-material-copy) {
+  align-items: flex-start;
+}
+.px-check:has(.px-material-copy) > input {
+  margin-top: 4px;
+  flex: none;
+}

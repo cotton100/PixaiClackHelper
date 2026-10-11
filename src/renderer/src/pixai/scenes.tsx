@@ -1,3 +1,4 @@
+import { MaterialPreview } from './material-preview'
 import { useUnsavedNavigation } from './unsaved-navigation'
 import { RatioMark } from './ratio-mark'
 import { useEffect, useState } from 'react'
@@ -227,6 +228,9 @@ export function Scenes({
           />
           <span>
             <strong>{resolved.name}</strong>
+            <MaterialPreview
+              item={library.characters.find((c) => c.id === resolved.characterId) ?? {}}
+            />
             <small>
               {row.kind === 'cast' ? '저장 출연' : '캐릭터'}
               {selected
@@ -1180,7 +1184,10 @@ function SceneEditor({
                       })
                     }}
                   />
-                  <span>{chunk.name}</span>
+                  <span className="px-material-copy">
+                    <strong>{chunk.name}</strong>
+                    <MaterialPreview item={chunk} />
+                  </span>
                 </label>
               )}
             />

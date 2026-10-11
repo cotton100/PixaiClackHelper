@@ -1,3 +1,4 @@
+import { MaterialPreview } from './material-preview'
 import { RatioMark } from './ratio-mark'
 import { useState } from 'react'
 import { Star, X } from 'lucide-react'
@@ -5,6 +6,7 @@ import {
   composePrompts,
   normalizeSnapshot,
   presetHasText,
+  resolvePresetCommon,
   type Combination,
   type Reservation
 } from '@shared/pixai/library'
@@ -44,9 +46,11 @@ export function Compose({
   )
   const completeChunks = chunks.filter((item): item is NonNullable<typeof item> => !!item)
   // The preset's own common text rides inside the common block, so the trigger index is unchanged.
-  const commonLabel = preset && presetHasText(preset) ? '공통문 + 프리셋 문구' : '공통문'
+  const commonName =
+    library.commonPresets?.find((item) => item.id === preset?.commonPresetId)?.name ?? '기본 공통문'
+  const commonLabel = preset && presetHasText(preset) ? commonName + ' + 프리셋 문구' : commonName
   const prompts = composePrompts(
-    library.common,
+    resolvePresetCommon(library, preset),
     character ?? { prompt: '', negativePrompt: '' },
     completeChunks,
     preset ?? { loras: [] },
@@ -120,7 +124,7 @@ export function Compose({
       triggerPosition: draft.triggerPosition,
       imageOptions,
       snapshot: normalizeSnapshot({
-        common: library.common,
+        common: resolvePresetCommon(library, preset),
         preset,
         character,
         chunks: completeChunks.map(({ id, name, prompt, negativePrompt }) => ({
@@ -266,10 +270,13 @@ export function Compose({
                 .map((item) => (
                   <button
                     key={item.id}
+                    className="px-material-pick"
+                    aria-label={item.name}
                     aria-pressed={draft.presetId === item.id}
                     onClick={() => onChange({ ...draft, presetId: item.id })}
                   >
-                    {item.name}
+                    <strong>{item.name}</strong>
+                    <MaterialPreview item={item} library={library} />
                   </button>
                 ))}
             </div>
@@ -282,6 +289,8 @@ export function Compose({
               search={search}
               render={(item) => (
                 <button
+                  className="px-material-pick"
+                  aria-label={item.name}
                   aria-pressed={draft.characterId === item.id}
                   onClick={() =>
                     onChange({
@@ -291,7 +300,8 @@ export function Compose({
                     })
                   }
                 >
-                  {item.name}
+                  <strong>{item.name}</strong>
+                  <MaterialPreview item={item} library={library} />
                 </button>
               )}
             />
@@ -349,7 +359,10 @@ export function Compose({
                           checked={draft.sceneIds.includes(chunk.id)}
                           onChange={() => toggle(chunk.id)}
                         />
-                        <span>{chunk.name}</span>
+                        <span className="px-material-copy">
+                          <strong>{chunk.name}</strong>
+                          <MaterialPreview item={chunk} />
+                        </span>
                       </label>
                     ))}
                   </details>

@@ -33,7 +33,9 @@ it('restores compose selections after unmount and restart and never writes empty
   const pane = (): Element => container.querySelector('[aria-label="조합 재료"]')!
   const click = async (name: string): Promise<void> => {
     await act(async () =>
-      [...pane().querySelectorAll('button')].find((b) => b.textContent === name)!.click()
+      [...pane().querySelectorAll('button')]
+        .find((b) => b.getAttribute('aria-label') === name || b.textContent === name)!
+        .click()
     )
   }
   await click('프리셋')

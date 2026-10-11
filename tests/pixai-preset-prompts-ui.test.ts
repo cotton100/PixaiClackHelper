@@ -67,14 +67,14 @@ async function submit(name: string): Promise<void> {
 async function renderLibrary(): Promise<void> {
   await act(async () => root.render(h(LibraryEditor, { store })))
   await click('프리셋')
-  await click('기본 모델테스트 모델 · LoRA 1')
+  await click('기본 모델')
 }
 
 describe('preset common prompts in the UI', () => {
   it('saves, restores, duplicates and keeps the preset text out of other presets', async () => {
     await renderLibrary()
     expect(field('이 프리셋의 공통 포지').value).toBe('')
-    expect(container.textContent).toContain('전역 공통문과 함께 적용됩니다')
+    expect(container.textContent).toContain('위 공통문과 함께 적용됩니다')
     await type('이 프리셋의 공통 포지', 'preset-style')
     await type('이 프리셋의 공통 네거', 'preset-bad')
     // typing alone does not save
@@ -98,10 +98,10 @@ describe('preset common prompts in the UI', () => {
       negativePrompt: 'preset-bad'
     })
     // switching to the copy and back shows each preset's own text, with no mixing
-    await click('기본 모델 사본테스트 모델 · LoRA 1')
+    await click('기본 모델 사본')
     await type('이 프리셋의 공통 포지', 'copy-style')
     await submit('재료 저장')
-    await click('기본 모델테스트 모델 · LoRA 1')
+    await click('기본 모델')
     expect(field('이 프리셋의 공통 포지').value).toBe('preset-style')
     expect(store.getState().workspace.library.presets.map((preset) => preset.prompt)).toEqual([
       'preset-style',
@@ -226,8 +226,10 @@ describe('preset common prompts in the UI', () => {
     await click('스크립트용 내보내기')
     const text = container.textContent ?? ''
     expect(text).toContain('예약 2개를 제외합니다 (그중 프리셋 공통 문구가 든 예약 2개)')
-    expect(text).toContain('프리셋 「기본 모델」의 공통 포지·네거는 스크립트가 읽지 못해 빠집니다')
-    expect(text).toContain('최근 조합·즐겨찾기 1개도 문구 없이 불러와집니다')
+    expect(text).toContain(
+      '프리셋 「기본 모델」의 추가 문구와 공통문 세트 연결은 스크립트가 읽지 못해 빠집니다'
+    )
+    expect(text).toContain('최근 조합·즐겨찾기 1개도 연결 문구 없이 불러와집니다')
     expect(text).toContain('프리셋 공통 포지·네거')
   })
 })

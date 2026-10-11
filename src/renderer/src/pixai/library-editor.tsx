@@ -1,3 +1,6 @@
+import { deleteCommonPreset, resolvePresetCommon, type CommonPreset } from '@shared/pixai/library'
+import { CommonEditor } from './common-editor'
+import { MaterialPreview } from './material-preview'
 import { bulkMaterials } from './library-actions'
 import { useUnsavedNavigation } from './unsaved-navigation'
 import { useEffect, useState } from 'react'
@@ -20,6 +23,13 @@ export function LibraryEditor({ store }: { store: PixaiStore }): React.JSX.Eleme
   const [notice, setNotice] = useState('')
   const [foldersOpen, setFoldersOpen] = useState(false)
   const [common, setCommon] = useState(false)
+  const [commonId, setCommonId] = useState('')
+  const [newCommon, setNewCommon] = useState<CommonPreset | null>(null)
+  const commonItem =
+    newCommon ?? workspace.library.commonPresets?.find((item) => item.id === commonId)
+  if (commonId && !workspace.library.commonPresets?.some((item) => item.id === commonId)) {
+    setCommonId('')
+  }
   const [selectMode, setSelectMode] = useState(false)
   const [selection, setSelection] = useState<string[]>([])
   const [moveFolder, setMoveFolder] = useState('')
@@ -50,6 +60,10 @@ export function LibraryEditor({ store }: { store: PixaiStore }): React.JSX.Eleme
     setCreating(null)
   }
   function create(): void {
+    if (common) {
+      setNewCommon({ id: crypto.randomUUID(), name: '', prompt: '', negativePrompt: '' })
+      return
+    }
     const id = crypto.randomUUID()
     setCreating(
       kind === 'presets'
@@ -90,7 +104,7 @@ export function LibraryEditor({ store }: { store: PixaiStore }): React.JSX.Eleme
                 폴더 추가
               </button>
             )}
-            <button disabled={busy || common} onClick={() => guard.request(create)}>
+            <button disabled={busy} onClick={() => guard.request(create)}>
               <Plus size={16} />
               추가
             </button>
@@ -121,6 +135,7 @@ export function LibraryEditor({ store }: { store: PixaiStore }): React.JSX.Eleme
               onClick={() =>
                 guard.request(() => {
                   setCommon(true)
+                  setSearch('')
                   setSelection([])
                 })
               }
@@ -130,7 +145,7 @@ export function LibraryEditor({ store }: { store: PixaiStore }): React.JSX.Eleme
           </div>
           <input
             aria-label="라이브러리 검색"
-            placeholder={`${labels[kind]} 검색`}
+            placeholder={common ? '공통문 세트 검색' : `${labels[kind]} 검색`}
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
@@ -220,6 +235,32 @@ export function LibraryEditor({ store }: { store: PixaiStore }): React.JSX.Eleme
               )}
             </div>
           )}
+          {common && (
+            <div className="px-scroll" aria-label="공통문 세트 목록">
+              {[
+                { id: '', name: '기본 공통문', ...workspace.library.common },
+                ...(workspace.library.commonPresets ?? [])
+              ]
+                .filter((entry) => entry.name.toLowerCase().includes(search.toLowerCase()))
+                .map((entry) => (
+                  <button
+                    key={entry.id}
+                    className="px-library-item"
+                    aria-label={entry.name}
+                    aria-pressed={!newCommon && commonId === entry.id}
+                    onClick={() =>
+                      guard.request(() => {
+                        setCommonId(entry.id)
+                        setNewCommon(null)
+                      })
+                    }
+                  >
+                    <strong>{entry.name}</strong>
+                    <MaterialPreview item={entry} library={workspace.library} />
+                  </button>
+                ))}
+            </div>
+          )}
           <div className="px-scroll" hidden={common}>
             {kind !== 'presets' && foldersOpen && (
               <div id="library-folder-tools">
@@ -288,7 +329,7 @@ export function LibraryEditor({ store }: { store: PixaiStore }): React.JSX.Eleme
                       }
                     >
                       <strong>{chunk.name}</strong>
-                      <small>{chunk.prompt || '문구 없음'}</small>
+                      <MaterialPreview item={chunk} />
                     </button>
                   </div>
                 )}
@@ -324,6 +365,7 @@ export function LibraryEditor({ store }: { store: PixaiStore }): React.JSX.Eleme
                         )}
                         <button
                           className="px-library-item"
+                          aria-label={entry.name}
                           aria-pressed={selected === entry.id}
                           onClick={() =>
                             guard.request(() => {
@@ -333,15 +375,7 @@ export function LibraryEditor({ store }: { store: PixaiStore }): React.JSX.Eleme
                           }
                         >
                           <strong>{entry.name || `이름 없는 ${labels[kind]}`}</strong>
-                          <small>
-                            {'model' in entry
-                              ? `${entry.model.name} · LoRA ${entry.loras.length}`
-                              : 'folderId' in entry
-                                ? (workspace.library.chunkFolders.find(
-                                    (folder) => folder.id === entry.folderId
-                                  )?.name ?? '미분류')
-                                : '프롬프트 편집'}
-                          </small>
+                          <MaterialPreview item={entry} library={workspace.library} />
                         </button>
                       </div>
                     </SortableItem>
@@ -361,7 +395,42 @@ export function LibraryEditor({ store }: { store: PixaiStore }): React.JSX.Eleme
           </header>
           {common ? (
             <div className="px-scroll">
-              <CommonEditor store={store} guard={guard} />
+              <CommonEditor
+                key={commonItem ? `set:${commonItem.id}` : 'default'}
+                store={store}
+                guard={guard}
+                item={commonItem ?? { id: '', name: '기본 공통문', ...workspace.library.common }}
+                isNew={!!newCommon}
+                onSave={async (value) => {
+                  await edit((library) =>
+                    value.id
+                      ? {
+                          ...library,
+                          commonPresets: library.commonPresets?.some(
+                            (entry) => entry.id === value.id
+                          )
+                            ? library.commonPresets.map((entry) =>
+                                entry.id === value.id ? value : entry
+                              )
+                            : [...(library.commonPresets ?? []), value]
+                        }
+                      : {
+                          ...library,
+                          common: { prompt: value.prompt, negativePrompt: value.negativePrompt }
+                        }
+                  )
+                  setNewCommon(null)
+                  setCommonId(value.id)
+                }}
+                onDuplicate={(value) => {
+                  setNewCommon({ ...value, id: crypto.randomUUID(), name: value.name + ' 사본' })
+                }}
+                onDelete={async () => {
+                  await edit((library) => deleteCommonPreset(library, commonId))
+                  setCommonId('')
+                  setNewCommon(null)
+                }}
+              />
             </div>
           ) : item ? (
             <MaterialEditor
@@ -415,14 +484,26 @@ export function LibraryEditor({ store }: { store: PixaiStore }): React.JSX.Eleme
         </section>
         <section className="px-pane">
           <header>
-            <h2>{common ? '합성 순서' : '연결된 자료'}</h2>
+            <h2>연결된 자료</h2>
           </header>
           <div className="px-scroll">
             {common ? (
-              <p>
-                전역 공통문과 프리셋 공통 문구 → 트리거 → 캐릭터 → 청크 → 씬 문구. 트리거 위치는
-                조합마다 바꿀 수 있습니다.
-              </p>
+              <>
+                <p>
+                  모델·LoRA 프리셋 편집에서 이 공통문 세트를 연결하세요. 연결한 세트가 기본 공통문을
+                  대신하며, 프리셋 자체의 추가 문구는 함께 적용됩니다.
+                </p>
+                <h3>{commonItem?.name || '기본 공통문'} 사용 프리셋</h3>
+                {workspace.library.presets
+                  .filter((preset) => (preset.commonPresetId ?? '') === (commonItem?.id ?? ''))
+                  .map((preset) => (
+                    <p key={preset.id}>
+                      <strong>{preset.name}</strong>
+                      <MaterialPreview item={preset} library={workspace.library} />
+                    </p>
+                  ))}
+                <small>등록된 예약은 공통문을 수정하거나 삭제해도 당시 문구를 유지합니다.</small>
+              </>
             ) : kind === 'characters' && item && !creating ? (
               <CastEditor key={item.id} store={store} character={item as Character} guard={guard} />
             ) : item ? (
@@ -742,6 +823,30 @@ function MaterialEditor({
               </details>
               <details open>
                 <summary>이 프리셋의 공통 문구</summary>
+                <label>
+                  연결할 공통문 세트
+                  <select
+                    aria-label="연결할 공통문 세트"
+                    value={draft.commonPresetId ?? ''}
+                    onChange={(event) => setDraft({ ...draft, commonPresetId: event.target.value })}
+                  >
+                    <option value="">기본 공통문 사용</option>
+                    {(workspace.library.commonPresets ?? []).map((set) => (
+                      <option key={set.id} value={set.id}>
+                        {set.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {draft.commonPresetId &&
+                !workspace.library.commonPresets?.some((set) => set.id === draft.commonPresetId) ? (
+                  <p role="alert">연결된 공통문 세트가 없습니다. 다시 골라 주세요.</p>
+                ) : (
+                  <MaterialPreview item={resolvePresetCommon(workspace.library, draft)} />
+                )}
+                <small>
+                  연결한 세트가 기본 공통문을 대신합니다. 아래 문구는 이 프리셋에만 추가됩니다.
+                </small>
                 <PromptFields
                   prompt={draft.prompt ?? ''}
                   negativePrompt={draft.negativePrompt ?? ''}
@@ -751,10 +856,7 @@ function MaterialEditor({
                   }}
                   onChange={(value) => setDraft({ ...draft, ...value })}
                 />
-                <small>
-                  이 프리셋을 선택한 조합에 전역 공통문과 함께 적용됩니다. 비워 두면 이전과
-                  같습니다.
-                </small>
+                <small>위 공통문과 함께 적용됩니다. 비워 두면 공통문 세트만 사용합니다.</small>
               </details>
             </>
           ) : (
@@ -1022,45 +1124,6 @@ function CastEditor({
   )
 }
 
-function CommonEditor({
-  store,
-  guard
-}: {
-  store: PixaiStore
-  guard: ReturnType<typeof useUnsavedNavigation>
-}): React.JSX.Element {
-  const { workspace, busy } = store()
-  const [value, setValue] = useState(workspace.library.common)
-  const dirty = JSON.stringify(value) !== JSON.stringify(workspace.library.common)
-  async function saveCommon(): Promise<boolean> {
-    try {
-      await store.getState().editLibrary((library) => ({ ...library, common: value }))
-      return true
-    } catch {
-      return false
-    }
-  }
-  useEffect(
-    () => guard.register(dirty, saveCommon, () => setValue(workspace.library.common)),
-    [value, dirty]
-  )
-  return (
-    <form
-      onSubmit={(event) => {
-        event.preventDefault()
-        void store
-          .getState()
-          .editLibrary((library) => ({ ...library, common: value }))
-          .catch(() => {})
-      }}
-    >
-      <small>{dirty ? '저장 안 됨' : '저장됨'}</small>
-      <PromptFields {...value} onChange={setValue} />
-      <button disabled={busy}>공통문 저장</button>
-    </form>
-  )
-}
-
 function MaterialFolders({
   store,
   kind
@@ -1144,12 +1207,15 @@ function MaterialContext({
         )}
         <h3>합쳐질 공통 포지</h3>
         <p className="px-preview-text">
-          {[library.common.prompt, preset.prompt].filter(Boolean).join(', ') || '(비어 있음)'}
+          {[resolvePresetCommon(library, preset).prompt, preset.prompt]
+            .filter(Boolean)
+            .join(', ') || '(비어 있음)'}
         </p>
         <h3>합쳐질 공통 네거</h3>
         <p className="px-preview-text">
-          {[library.common.negativePrompt, preset.negativePrompt].filter(Boolean).join(', ') ||
-            '(비어 있음)'}
+          {[resolvePresetCommon(library, preset).negativePrompt, preset.negativePrompt]
+            .filter(Boolean)
+            .join(', ') || '(비어 있음)'}
         </p>
       </>
     )

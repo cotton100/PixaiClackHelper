@@ -507,7 +507,7 @@ describe('Composition, grouped reservations and backup controls', () => {
       }))
       await act(async () => root.render(h(LibraryEditor, { store })))
       await click('프리셋')
-      await click('기본 모델테스트 모델 · LoRA 2')
+      await click('기본 모델')
       await input('LoRA 1 링크', 'https://pixai.art/model/99-test/999')
       await click('LoRA 1 정보 가져오기')
       if (!pending) expect(container.textContent).toContain('버전 999')

@@ -28,7 +28,13 @@ export interface ModelRef {
   family?: string
 }
 
+export interface CommonPreset extends ExtraText {
+  id: string
+  name: string
+}
+
 export interface Preset {
+  commonPresetId?: string
   id: string
   name: string
   model: ModelRef
@@ -156,6 +162,7 @@ export interface BatchPlan {
 }
 
 export interface Library {
+  commonPresets?: CommonPreset[]
   version: 1
   common: ExtraText
   presets: Preset[]
@@ -169,6 +176,27 @@ export interface Library {
   sceneCards?: SceneCard[]
   casts?: Cast[]
   batchPlans?: BatchPlan[]
+}
+
+/** Resolve only live compositions. Frozen reservations already contain the selected text. */
+export function resolvePresetCommon(
+  library: Library,
+  preset?: Pick<Preset, 'commonPresetId'>
+): ExtraText {
+  if (!preset?.commonPresetId) return library.common
+  const selected = library.commonPresets?.find((item) => item.id === preset.commonPresetId)
+  if (!selected) throw new Error('연결된 공통문 세트가 없습니다. 프리셋의 연결을 확인해 주세요.')
+  return { prompt: selected.prompt, negativePrompt: selected.negativePrompt }
+}
+
+export function deleteCommonPreset(library: Library, id: string): Library {
+  return {
+    ...library,
+    commonPresets: (library.commonPresets ?? []).filter((item) => item.id !== id),
+    presets: library.presets.map((item) =>
+      item.commonPresetId === id ? omitKey(item, 'commonPresetId') : item
+    )
+  }
 }
 
 export const API_RATIOS = [
@@ -568,6 +596,8 @@ export function normalizeLibrary(value: unknown): Library {
         ...validatePresetConfiguration(item)
       }
       // Optional per-preset common text; older presets keep their shape untouched.
+      if (hasOwn(item, 'commonPresetId') && presetText(item.commonPresetId))
+        preset.commonPresetId = presetIdentifier(item.commonPresetId, '공통문 세트')
       if (hasOwn(item, 'prompt')) preset.prompt = presetText(item.prompt)
       if (hasOwn(item, 'negativePrompt')) preset.negativePrompt = presetText(item.negativePrompt)
       return preset
@@ -660,6 +690,17 @@ export function normalizeLibrary(value: unknown): Library {
       throw new Error('최근 조합은 50개, 즐겨찾기는 1,000개까지 저장할 수 있습니다.')
     }
   }
+  if (hasOwn(source, 'commonPresets'))
+    library.commonPresets = entries('commonPresets', (item, id) => {
+      const name = presetText(item.name)
+      if (!name) throw new Error('공통문 세트 이름을 입력해 주세요.')
+      return {
+        id,
+        name,
+        prompt: presetText(item.prompt),
+        negativePrompt: presetText(item.negativePrompt)
+      }
+    })
   if (hasOwn(source, 'characterFolders')) library.characterFolders = characterFolders
   if (hasOwn(source, 'sceneFolders')) library.sceneFolders = sceneFolders
   const sceneFolderIds = new Set(sceneFolders.map((item) => item.id))
@@ -695,7 +736,8 @@ export function strictLibrary(value: unknown): Library {
       'sceneFolders',
       'sceneCards',
       'casts',
-      'batchPlans'
+      'batchPlans',
+      'commonPresets'
     ]
   )
   allowedKeys(source.common, '공통 프롬프트', ['prompt', 'negativePrompt'])
@@ -713,7 +755,7 @@ export function strictLibrary(value: unknown): Library {
       item,
       '설정 프리셋',
       ['id', 'name', 'model', 'loras'],
-      ['id', 'name', 'model', 'loras', 'prompt', 'negativePrompt']
+      ['id', 'name', 'model', 'loras', 'prompt', 'negativePrompt', 'commonPresetId']
     )
     allowedKeys(
       preset.model,
@@ -729,6 +771,9 @@ export function strictLibrary(value: unknown): Library {
         ['id', 'name', 'weight', 'versionId', 'triggerWords']
       )
   }
+  for (const item of list('commonPresets'))
+    allowedKeys(item, '공통문 세트', ['id', 'name', 'prompt', 'negativePrompt'])
+  for (const preset of library.presets) resolvePresetCommon(library, preset)
   const fields = ['id', 'name', 'prompt', 'negativePrompt']
   for (const item of list('characters'))
     allowedKeys(item, '캐릭터', fields, [...fields, 'defaultPresetId', 'folderId'])
@@ -811,7 +856,7 @@ export interface ScriptExportDropped {
 
 /** 스크립트가 아는 프리셋 모양: 문구 필드를 뺀다. */
 function presetForScript(preset: Preset): Preset {
-  return omitKey(omitKey(preset, 'prompt'), 'negativePrompt')
+  return omitKey(omitKey(omitKey(preset, 'prompt'), 'negativePrompt'), 'commonPresetId')
 }
 
 export function exportForScript(value: unknown): {
@@ -823,12 +868,16 @@ export function exportForScript(value: unknown): {
     reservations: 0,
     reservationsWithPresetText: 0,
     presetsWithText: library.presets
-      .filter(presetHasText)
+      .filter((preset) => presetHasText(preset) || !!preset.commonPresetId)
       .map((preset) => preset.name || preset.id),
     combinationsWithPresetText: 0,
     keys: []
   }
-  const textPresetIds = new Set(library.presets.filter(presetHasText).map((preset) => preset.id))
+  const textPresetIds = new Set(
+    library.presets
+      .filter((preset) => presetHasText(preset) || !!preset.commonPresetId)
+      .map((preset) => preset.id)
+  )
   dropped.combinationsWithPresetText = (library.combinations ?? []).filter((item) =>
     textPresetIds.has(item.presetId)
   ).length
@@ -844,7 +893,7 @@ export function exportForScript(value: unknown): {
         // Match expandReservations: use today's preset only when no frozen copy exists.
         const preset =
           item.snapshot?.preset ?? library.presets.find((preset) => preset.id === item.presetId)
-        if (preset && presetHasText(preset)) {
+        if (preset && (presetHasText(preset) || (!item.snapshot && !!preset.commonPresetId))) {
           dropped.reservations++
           dropped.reservationsWithPresetText++
           return false
@@ -865,10 +914,12 @@ export function exportForScript(value: unknown): {
           : plain
       })
   }
-  if (dropped.presetsWithText.length) dropped.keys.push('presets.prompt')
+  if (library.presets.some(presetHasText)) dropped.keys.push('presets.prompt')
+  if (library.presets.some((item) => item.commonPresetId))
+    dropped.keys.push('presets.commonPresetId')
   if (library.combinations) out.combinations = library.combinations
   if (library.characterFolders) out.characterFolders = library.characterFolders
-  for (const key of ['sceneFolders', 'sceneCards', 'casts', 'batchPlans'] as const)
+  for (const key of ['sceneFolders', 'sceneCards', 'casts', 'batchPlans', 'commonPresets'] as const)
     if (library[key]) dropped.keys.push(key)
   if (library.characters.some((item) => item.defaultPresetId))
     dropped.keys.push('characters.defaultPresetId')
@@ -1121,13 +1172,13 @@ export function expandReservations(
   const ids = new Set<string>()
   for (const reservation of library.reservations) {
     const frozen = reservation.snapshot
-    const common = frozen?.common ?? library.common
     const preset =
       frozen?.preset ?? library.presets.find((item) => item.id === reservation.presetId)
     const character =
       frozen?.character ?? library.characters.find((item) => item.id === reservation.characterId)
     if (!preset) throw new Error(`예약 ${reservation.id}의 설정 프리셋이 없습니다.`)
     if (!character) throw new Error(`예약 ${reservation.id}의 캐릭터가 없습니다.`)
+    const common = frozen?.common ?? resolvePresetCommon(library, preset)
     const chunks =
       frozen?.chunks ??
       reservation.sceneIds.map((sceneId) => {

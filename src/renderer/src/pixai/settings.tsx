@@ -25,6 +25,8 @@ export function BackupSettings({
   if (workspace.options.ui) dropped.keys.push('options.ui')
   const names: Record<string, string> = {
     sceneFolders: '씬 그룹',
+    commonPresets: '공통문 세트 목록',
+    'presets.commonPresetId': '프리셋의 공통문 세트 연결',
     'options.ui': '칸 비율·씬 보기·접힘 설정',
     sceneCards: '씬 카드',
     casts: '저장 출연',
@@ -164,11 +166,11 @@ export function BackupSettings({
                 </p>
                 {dropped.presetsWithText.length > 0 && (
                   <p>
-                    프리셋 {dropped.presetsWithText.map((name) => `「${name}」`).join(', ')}의 공통
-                    포지·네거는 스크립트가 읽지 못해 빠집니다. 스크립트에서는 문구 없는 프리셋으로
-                    적용됩니다
+                    프리셋 {dropped.presetsWithText.map((name) => `「${name}」`).join(', ')}의 추가
+                    문구와 공통문 세트 연결은 스크립트가 읽지 못해 빠집니다. 새 조합에는 기본
+                    공통문이 적용됩니다
                     {dropped.combinationsWithPresetText > 0 &&
-                      ` (이 프리셋을 쓰는 최근 조합·즐겨찾기 ${dropped.combinationsWithPresetText}개도 문구 없이 불러와집니다)`}
+                      ` (이 프리셋을 쓰는 최근 조합·즐겨찾기 ${dropped.combinationsWithPresetText}개도 연결 문구 없이 불러와집니다)`}
                     .
                   </p>
                 )}
