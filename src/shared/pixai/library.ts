@@ -99,6 +99,7 @@ export interface Reservation {
   triggerPosition?: TriggerPosition
   imageOptions?: ImageOptions
   snapshot?: Snapshot
+  sourceSceneId?: string
   batch?: BatchTag
 }
 
@@ -614,6 +615,8 @@ export function normalizeLibrary(value: unknown): Library {
       reservation.triggerPosition = normalizeTriggerPosition(item.triggerPosition, sceneIds.length)
     if (hasOwn(item, 'imageOptions'))
       reservation.imageOptions = normalizeImageOptions(item.imageOptions)
+    if (hasOwn(item, 'sourceSceneId'))
+      reservation.sourceSceneId = presetIdentifier(item.sourceSceneId, '원본 씬')
     if (hasOwn(item, 'batch')) reservation.batch = normalizeBatchTag(item.batch)
     if (hasOwn(item, 'snapshot')) {
       reservation.snapshot = normalizeSnapshot(item.snapshot)
@@ -745,7 +748,8 @@ export function strictLibrary(value: unknown): Library {
         'snapshot',
         'triggerPosition',
         'imageOptions',
-        'batch'
+        'batch',
+        'sourceSceneId'
       ]
     )
   }
@@ -852,7 +856,7 @@ export function exportForScript(value: unknown): {
         return true
       })
       .map((item) => {
-        const plain = omitKey(item, 'batch')
+        const plain = omitKey(omitKey(item, 'batch'), 'sourceSceneId')
         return plain.snapshot
           ? {
               ...plain,

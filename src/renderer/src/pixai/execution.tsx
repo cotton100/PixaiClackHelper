@@ -1,3 +1,4 @@
+import { RatioMark } from './ratio-mark'
 import { useEffect, useState } from 'react'
 import type { ConnectionStatus, JobState, RunnerStatus } from '@shared/pixai/execution'
 import type { PixaiStore } from './store'
@@ -76,8 +77,8 @@ export function ApiConnection(): React.JSX.Element {
             이 PC에 키 기억하기 (OS 보호 저장)
           </label>
           <small>
-            기본은 앱 종료 시 해제입니다. 키는 설정 내보내기·로그·이미지 서버로 보내지 않습니다. PC 계정에
-            접근할 수 있는 프로그램까지 막아 주는 기능은 아닙니다.
+            기본은 앱 종료 시 해제입니다. 키는 설정 내보내기·로그·이미지 서버로 보내지 않습니다. PC
+            계정에 접근할 수 있는 프로그램까지 막아 주는 기능은 아닙니다.
           </small>
           <div className="px-toolbar">
             <button
@@ -378,7 +379,7 @@ export function ExecutionQueue({ store }: { store: PixaiStore }): React.JSX.Elem
               </label>
               <small>
                 {record ? labels[record.state] : '등록됨 · 미제출'} · {job.images || '미지정'}장 ·
-                가로:세로 {job.ratio}
+                가로:세로 <RatioMark ratio={job.ratio} />
                 {record?.taskId ? ` · 작업 ID ${record.taskId}` : ''}
               </small>
               {record?.error && <p className="px-error">{record.error}</p>}

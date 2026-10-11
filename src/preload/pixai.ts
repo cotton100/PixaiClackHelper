@@ -4,6 +4,7 @@ const channels = new Set([
   'settings:set',
   'window:control',
   'pixai:status',
+  'pixai:scene-thumbnails',
   'pixai:update-status',
   'pixai:update-check',
   'pixai:update-latest',

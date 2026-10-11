@@ -43,6 +43,7 @@ export interface ExecutionJob {
   state: JobState
   taskId?: string
   outputDir: string
+  sourceSceneId?: string
   mediaIds?: string[]
   files: string[]
   error: string
@@ -61,7 +62,17 @@ export interface ConnectionStatus {
   outputDir: string
   maxInFlight: number
 }
+export interface SceneThumbnail {
+  sceneId: string
+  dataUrl: string
+  savedAt: number
+}
+export interface SceneThumbnailStatus {
+  revision: string
+  images?: SceneThumbnail[]
+}
 export interface PixaiInvokeMap {
+  'pixai:scene-thumbnails': { req: { revision?: string }; res: SceneThumbnailStatus }
   'pixai:update-status': { req: Record<string, never>; res: UpdateStatus }
   'pixai:update-check': { req: Record<string, never>; res: UpdateStatus }
   'pixai:update-latest': { req: Record<string, never>; res: UpdateStatus }

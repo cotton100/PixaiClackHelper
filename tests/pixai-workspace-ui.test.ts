@@ -7,11 +7,11 @@ import { Compose, ReservationList } from '../src/renderer/src/pixai/compose'
 import { emptyDraft } from '../src/renderer/src/pixai/composition'
 import { BackupSettings } from '../src/renderer/src/pixai/settings'
 import { LibraryEditor } from '../src/renderer/src/pixai/library-editor'
-import { SplitPanes } from '../src/renderer/src/pixai/controls'
+import { ImagePicker, SplitPanes } from '../src/renderer/src/pixai/controls'
 import { ModelLinkInput } from '../src/renderer/src/pixai/model-link'
 import { parseModelLink, type ModelLinkInfo } from '../src/shared/pixai/model-link'
 import { createPixaiStore, emptyWorkspace } from '../src/renderer/src/pixai/store'
-import { makeSettingsBackup, type BatchPlan } from '../src/shared/pixai/library'
+import { API_RATIOS, makeSettingsBackup, type BatchPlan } from '../src/shared/pixai/library'
 import { pixaiLibrary } from './fixtures/pixai-workspace'
 
 let root: Root, container: HTMLDivElement
@@ -68,6 +68,172 @@ async function selectNine(): Promise<void> {
 }
 
 describe('PixAIS scene UI uses the fixed batch core', () => {
+  it('shows every image ratio as a proportional rectangle and a direction label', async () => {
+    const onChange = vi.fn()
+    await act(async () =>
+      root.render(h(ImagePicker, { value: { aspectRatio: '5:3', size: '1k' }, onChange }))
+    )
+    for (const ratio of API_RATIOS) {
+      const [w, h] = ratio.split(':').map(Number)
+      const name = `${ratio} ${w === h ? '정사각형' : w > h ? '가로형' : '세로형'}`
+      const choice = button(name)
+      expect(choice.textContent).toContain(w === h ? '정사각형' : w > h ? '가로형' : '세로형')
+      const rect = choice.querySelector('rect')!
+      expect(Number(rect.getAttribute('width')) / Number(rect.getAttribute('height'))).toBeCloseTo(
+        w / h
+      )
+      await click(name)
+      expect(onChange).toHaveBeenLastCalledWith({ aspectRatio: ratio, size: '1k' })
+    }
+    expect(button('5:3 가로형').getAttribute('aria-pressed')).toBe('true')
+  })
+  it('shows saved thumbnails by scene ID through rename, and gives copies a fresh preview', async () => {
+    const dataUrl = 'data:image/webp;base64,AAAA'
+    const invoke = vi.fn(async () => ({
+      revision: 'v1',
+      images: [{ sceneId: 'sc1', dataUrl, savedAt: 1 }]
+    }))
+    Object.defineProperty(window, 'nais', { configurable: true, value: { invoke } })
+    try {
+      await renderScenes()
+      expect(container.querySelector('img[alt="웃음 최근 생성 이미지"]')?.getAttribute('src')).toBe(
+        dataUrl
+      )
+      expect(container.querySelector('[aria-label="손 흔듦 생성 결과"]')?.textContent).toContain(
+        '생성 후 표시'
+      )
+      await act(async () =>
+        store.getState().editLibrary((library) => ({
+          ...library,
+          sceneCards: library.sceneCards!.map((card) =>
+            card.id === 'sc1' ? { ...card, name: '밝은 웃음' } : card
+          )
+        }))
+      )
+      expect(container.querySelector('img[alt="밝은 웃음 최근 생성 이미지"]')).not.toBeNull()
+      await click('밝은 웃음 복제')
+      expect(
+        container.querySelector('[aria-label="밝은 웃음 사본 생성 결과"]')?.textContent
+      ).toContain('생성 후 표시')
+      await act(async () => container.querySelector('img')!.dispatchEvent(new Event('error')))
+      expect(container.querySelector('[aria-label="밝은 웃음 생성 결과"]')?.textContent).toContain(
+        '미리보기 없음'
+      )
+      expect(invoke).toHaveBeenCalledWith('pixai:scene-thumbnails', { revision: undefined })
+    } finally {
+      Reflect.deleteProperty(window, 'nais')
+    }
+  })
+  it('retains source scene identity when reserving from the composition tab and restoring the workspace', async () => {
+    const card = store.getState().workspace.library.sceneCards![0]
+    await act(async () =>
+      root.render(
+        h(Compose, {
+          store,
+          draft: {
+            ...emptyDraft(),
+            presetId: 'p1',
+            characterId: 'c1',
+            sceneIds: card.sceneIds,
+            card
+          },
+          onChange: vi.fn(),
+          onSceneCreated: vi.fn()
+        })
+      )
+    )
+    await click('이 조합 예약 추가')
+    expect(store.getState().workspace.library.reservations[0].sourceSceneId).toBe(card.id)
+    await act(async () => store.getState().register())
+    const serialized = JSON.stringify(store.getState().workspace)
+    const restored = createPixaiStore({ read: async () => serialized, write: async () => {} })
+    await restored.getState().hydrate()
+    expect(
+      restored.getState().workspace.jobs[0].request.composition.reservation.sourceSceneId
+    ).toBe(card.id)
+  })
+  it('groups characters and their casts in library folders without changing selection or reservation order', async () => {
+    await store.getState().editLibrary((library) => ({
+      ...library,
+      characterFolders: [
+        { id: 'fa', name: '주연' },
+        { id: 'fb', name: '조연' }
+      ],
+      characters: library.characters.map((character, index) => ({
+        ...character,
+        ...(index < 2 ? { folderId: index === 0 ? 'fa' : 'fb' } : {})
+      })),
+      casts: [{ id: 'winter', name: '겨울복', characterId: 'c1', presetId: 'p1' }]
+    }))
+    await renderScenes()
+    expect(button('캐릭터 폴더 주연').getAttribute('aria-expanded')).toBe('false')
+    expect(button('캐릭터 폴더 조연').getAttribute('aria-expanded')).toBe('false')
+    expect(field('행 Alice')).toBeNull()
+    await click('캐릭터 폴더 조연')
+    await act(async () => field('행 Bob').click())
+    await click('캐릭터 폴더 주연')
+    expect(field('행 겨울복').closest('section')?.getAttribute('aria-label')).toBe(
+      '캐릭터 폴더 주연'
+    )
+    await act(async () => field('행 겨울복').click())
+    await act(async () => field('행 Alice').click())
+    await click('캐릭터 폴더 주연')
+    expect(container.querySelector('[aria-label="누구"]')?.textContent).toContain('3명 선택')
+    await input('캐릭터·출연 검색', 'Cara')
+    expect(button('캐릭터 폴더 미분류').getAttribute('aria-expanded')).toBe('true')
+    expect(field('행 Cara')).not.toBeNull()
+    expect(field('행 Bob')).toBeNull()
+    await click('행 전체 선택')
+    await input('캐릭터·출연 검색', '')
+    await click('캐릭터 폴더 주연')
+    expect(field('행 Alice').checked).toBe(true)
+    expect(field('행 겨울복').checked).toBe(true)
+    await click('씬 전체 선택')
+    await click('현재 구성 저장')
+    const saved = store.getState().workspace.library.batchPlans![0]
+    expect(saved.rows.map((row) => `${row.kind}:${row.id}`)).toEqual([
+      'character:c2',
+      'cast:winter',
+      'character:c1',
+      'character:c3'
+    ])
+    await click('선택 조합 전부 예약')
+    expect(store.getState().workspace.library.reservations.map((r) => r.batch?.rowName)).toEqual([
+      'Bob',
+      'Bob',
+      'Bob',
+      '겨울복',
+      '겨울복',
+      '겨울복',
+      'Alice',
+      'Alice',
+      'Alice',
+      'Cara',
+      'Cara',
+      'Cara'
+    ])
+  })
+
+  it('reflects character folder moves in scenes and search without clearing the selection', async () => {
+    await renderScenes()
+    await click('캐릭터 폴더 미분류')
+    await act(async () => field('행 Alice').click())
+    await act(async () =>
+      store.getState().editLibrary((library) => ({
+        ...library,
+        characterFolders: [{ id: 'new', name: '새 폴더' }],
+        characters: library.characters.map((c) => (c.id === 'c1' ? { ...c, folderId: 'new' } : c))
+      }))
+    )
+    expect(button('캐릭터 폴더 새 폴더').getAttribute('aria-expanded')).toBe('false')
+    expect(field('행 Alice')).toBeNull()
+    await input('캐릭터·출연 검색', 'alice')
+    expect(button('캐릭터 폴더 새 폴더').getAttribute('aria-expanded')).toBe('true')
+    expect(field('행 Alice').checked).toBe(true)
+    await input('캐릭터·출연 검색', '')
+    expect(button('캐릭터 폴더 새 폴더').getAttribute('aria-expanded')).toBe('false')
+  })
+
   it('creates a named scene and group from checked chunks without modifying the library chunks', async () => {
     await renderScenes()
     const original = structuredClone(store.getState().workspace.library.scenes)

@@ -1,6 +1,6 @@
 {
   "name": "pixais",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "PixaiClackHelper - PixAI generation and queue helper",
   "main": "./out/main/index.js",
   "author": "sunanakgo",

@@ -3,7 +3,7 @@ import { ChevronDown, ChevronRight, Folder } from 'lucide-react'
 import type { Chunk, Folder as ChunkFolder } from '@shared/pixai/library'
 import { SortableItem, SortableItems } from './controls'
 
-export function ChunkList<T extends Chunk>({
+export function ChunkList<T extends Pick<Chunk, 'id' | 'name' | 'folderId'>>({
   chunks,
   folders,
   search = '',

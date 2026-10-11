@@ -6,6 +6,7 @@ import {
   type QueuedJob,
   type RunnerStatus
 } from '../../shared/pixai/execution'
+import { presetIdentifier } from '../../shared/pixai/library'
 import { ApiError, type Task } from './client'
 
 interface RunnerIO {
@@ -108,6 +109,14 @@ export class PixaiRunner {
         id,
         title: String(input.request.title).slice(0, 300),
         payload: buildPayload(input, randomInt(0, 4294967296)),
+        ...(input.request.composition.reservation.sourceSceneId !== undefined
+          ? {
+              sourceSceneId: presetIdentifier(
+                input.request.composition.reservation.sourceSceneId,
+                '원본 씬'
+              )
+            }
+          : {}),
         state: 'queued',
         outputDir,
         files: [],

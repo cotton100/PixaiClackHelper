@@ -8,6 +8,7 @@ import { getSetting, setSetting } from '../db/settings'
 import { PixaiClient } from './client'
 import { PixaiRunner } from './runner'
 import { PixaiVault } from './vault'
+import { SceneThumbnails } from './scene-thumbnails'
 import { checkFolder, saveMedia } from './files'
 import { readModelLink } from './model-link'
 import { PixaisUpdates, publicUpdateJson, canInstallUpdate } from './updates'
@@ -57,6 +58,10 @@ if (ownsInstance)
         encrypt: (value) => safeStorage.encryptString(value),
         decrypt: (value) => safeStorage.decryptString(Buffer.from(value))
       })
+      const thumbnails = new SceneThumbnails({
+        read: () => getSetting('pixais.sceneThumbnails.v1'),
+        write: (text) => setSetting('pixais.sceneThumbnails.v1', text)
+      })
       const client = new PixaiClient(() => vault.get())
       try {
         runner = new PixaiRunner({
@@ -64,7 +69,11 @@ if (ownsInstance)
           write: (text) => setSetting('pixais.runner.v1', text),
           create: (job) => client.create(job.payload),
           task: (id) => client.task(id),
-          save: (job, id) => saveMedia(client, job, id),
+          save: async (job, id) => {
+            const file = await saveMedia(client, job, id)
+            await thumbnails.remember(job.sourceSceneId, file)
+            return file
+          },
           sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms))
         })
       } catch {
@@ -117,6 +126,7 @@ if (ownsInstance)
         })
       }
       handle('pixai:status', () => runner.status())
+      handle('pixai:scene-thumbnails', (req) => thumbnails.status(req?.revision))
       handle('pixai:update-status', () => updates.status())
       handle('pixai:update-check', () => updates.check())
       handle('pixai:update-latest', () => updates.updateLatest())

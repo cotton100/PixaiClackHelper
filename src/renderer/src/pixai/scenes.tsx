@@ -1,4 +1,7 @@
+import { RatioMark } from './ratio-mark'
 import { useState } from 'react'
+import { SceneThumbnailView } from './scene-thumbnails'
+import { useSceneThumbnails } from './use-scene-thumbnails'
 import { Copy, FolderPlus, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import {
   batchCellKey,
@@ -39,6 +42,7 @@ export function Scenes({
   onOpen: (card: SceneCard) => void
   initialEditId?: string
 }): React.JSX.Element {
+  const thumbnails = useSceneThumbnails()
   const { workspace, busy } = store()
   const { library, options } = workspace
   const [plan, setPlan] = useState<BatchPlan>(newPlan)
@@ -68,9 +72,20 @@ export function Scenes({
       (row) => !plan.rows.some((selected) => batchRowKey(row) === batchRowKey(selected))
     )
   ]
-  const visibleRows = orderedRows.filter((row) =>
-    resolveBatchRow(library, row).name.toLowerCase().includes(rowSearch.toLowerCase())
-  )
+  const rowItems = orderedRows.map((row) => {
+    const resolved = resolveBatchRow(library, row)
+    return {
+      id: batchRowKey(row),
+      name: resolved.name,
+      folderId: library.characters.find((character) => character.id === resolved.characterId)
+        ?.folderId,
+      row,
+      resolved
+    }
+  })
+  const visibleRows = rowItems
+    .filter((item) => item.name.toLowerCase().includes(rowSearch.toLowerCase()))
+    .map((item) => item.row)
   const visibleCards = cards.filter(
     (card) =>
       card.name.toLowerCase().includes(search.toLowerCase()) &&
@@ -218,66 +233,70 @@ export function Scenes({
               })
             }
           >
-            {visibleRows.map((row) => {
-              const key = batchRowKey(row),
-                resolved = resolveBatchRow(library, row),
-                selected = plan.rows.some((item) => batchRowKey(item) === key)
-              const preset = library.presets.find((item) => item.id === resolved.presetId)
-              const content = (
-                <div className={`px-choice ${selected ? 'is-selected' : ''}`}>
-                  <label className="px-check">
-                    <input
-                      type="checkbox"
-                      aria-label={`행 ${resolved.name}`}
-                      checked={selected}
-                      onChange={() => toggleRow(row)}
-                    />
-                    <span>
-                      <strong>{resolved.name}</strong>
-                      <small>
-                        {row.kind === 'cast' ? '저장 출연' : '캐릭터'}
-                        {selected
-                          ? ` · ${plan.rows.findIndex((item) => batchRowKey(item) === key) + 1}번째`
-                          : ''}
-                      </small>
-                    </span>
-                  </label>
-                  {preset ? (
-                    <small>{preset.name}</small>
-                  ) : row.kind === 'character' ? (
-                    <select
-                      aria-label={`${resolved.name} 이번 구성 프리셋`}
-                      value={row.presetId ?? ''}
-                      onChange={(event) => {
-                        const next = { ...row, presetId: event.target.value }
-                        setPlan({
-                          ...plan,
-                          rows: selected
-                            ? plan.rows.map((item) => (batchRowKey(item) === key ? next : item))
-                            : [...plan.rows, next]
-                        })
-                      }}
-                    >
-                      <option value="">프리셋 선택</option>
-                      {library.presets.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <small className="px-error">프리셋 연결을 확인해 주세요.</small>
-                  )}
-                </div>
-              )
-              return selected ? (
-                <SortableItem key={key} id={key} name={resolved.name}>
-                  {content}
-                </SortableItem>
-              ) : (
-                <div key={key}>{content}</div>
-              )
-            })}
+            <ChunkList
+              chunks={rowItems}
+              folders={library.characterFolders ?? []}
+              label="캐릭터"
+              search={rowSearch}
+              render={({ id: key, row, resolved }) => {
+                const selected = plan.rows.some((item) => batchRowKey(item) === key)
+                const preset = library.presets.find((item) => item.id === resolved.presetId)
+                const content = (
+                  <div className={`px-choice ${selected ? 'is-selected' : ''}`}>
+                    <label className="px-check">
+                      <input
+                        type="checkbox"
+                        aria-label={`행 ${resolved.name}`}
+                        checked={selected}
+                        onChange={() => toggleRow(row)}
+                      />
+                      <span>
+                        <strong>{resolved.name}</strong>
+                        <small>
+                          {row.kind === 'cast' ? '저장 출연' : '캐릭터'}
+                          {selected
+                            ? ` · ${plan.rows.findIndex((item) => batchRowKey(item) === key) + 1}번째`
+                            : ''}
+                        </small>
+                      </span>
+                    </label>
+                    {preset ? (
+                      <small>{preset.name}</small>
+                    ) : row.kind === 'character' ? (
+                      <select
+                        aria-label={`${resolved.name} 이번 구성 프리셋`}
+                        value={row.presetId ?? ''}
+                        onChange={(event) => {
+                          const next = { ...row, presetId: event.target.value }
+                          setPlan({
+                            ...plan,
+                            rows: selected
+                              ? plan.rows.map((item) => (batchRowKey(item) === key ? next : item))
+                              : [...plan.rows, next]
+                          })
+                        }}
+                      >
+                        <option value="">프리셋 선택</option>
+                        {library.presets.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <small className="px-error">프리셋 연결을 확인해 주세요.</small>
+                    )}
+                  </div>
+                )
+                return selected ? (
+                  <SortableItem key={key} id={key} name={resolved.name}>
+                    {content}
+                  </SortableItem>
+                ) : (
+                  <div key={key}>{content}</div>
+                )
+              }}
+            />
           </SortableItems>
           {!rows.length && (
             <p className="px-empty">라이브러리에서 캐릭터와 기본 프리셋을 먼저 저장해 주세요.</p>
@@ -401,6 +420,11 @@ export function Scenes({
               const selected = plan.columns.includes(card.id)
               const content = (
                 <article className={`px-scene-card ${selected ? 'is-selected' : ''}`}>
+                  <SceneThumbnailView
+                    name={card.name}
+                    image={thumbnails.images.find((image) => image.sceneId === card.id)}
+                    error={thumbnails.error}
+                  />
                   <small className="px-group-name">
                     {library.sceneFolders?.find((group) => group.id === card.folderId)?.name ??
                       '미분류'}{' '}
@@ -418,9 +442,14 @@ export function Scenes({
                   <p>{card.chunks.map((chunk) => chunk.name).join(' · ')}</p>
                   {card.extra?.prompt && <p className="px-scene-excerpt">{card.extra.prompt}</p>}
                   <small>
-                    {card.imageOptions
-                      ? `${card.imageOptions.aspectRatio} · ${card.imageOptions.size}`
-                      : '구성 공통값 따름'}
+                    {card.imageOptions ? (
+                      <>
+                        <RatioMark ratio={card.imageOptions.aspectRatio} /> ·{' '}
+                        {card.imageOptions.size}
+                      </>
+                    ) : (
+                      '구성 공통값 따름'
+                    )}
                   </small>
                   <div className="px-toolbar">
                     <button onClick={() => onOpen(card)}>조합으로 열기</button>

@@ -294,6 +294,7 @@ export function expandBatchPlan(
         presetId: row.presetId,
         characterId: row.characterId,
         sceneIds: [...column.sceneIds],
+        sourceSceneId: column.id,
         count,
         snapshot: normalizeSnapshot({
           common: library.common,

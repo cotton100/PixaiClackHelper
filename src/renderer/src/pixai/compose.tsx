@@ -1,3 +1,4 @@
+import { RatioMark } from './ratio-mark'
 import { useState } from 'react'
 import { Star, X } from 'lucide-react'
 import {
@@ -112,6 +113,7 @@ export function Compose({
       presetId: draft.presetId,
       characterId: draft.characterId,
       sceneIds: draft.sceneIds,
+      ...(draft.card ? { sourceSceneId: draft.card.id } : {}),
       count: draft.count,
       triggerPosition: draft.triggerPosition,
       imageOptions,
@@ -494,7 +496,12 @@ export function Compose({
                 <article className="px-history" key={item.id}>
                   <strong>{item.name}</strong>
                   <small>
-                    {item.count}회 · {item.imageOptions?.aspectRatio ?? '기본 비율'}
+                    {item.count}회 ·{' '}
+                    {item.imageOptions ? (
+                      <RatioMark ratio={item.imageOptions.aspectRatio} />
+                    ) : (
+                      '기본 비율'
+                    )}
                   </small>
                   <div className="px-toolbar">
                     <button onClick={() => load(item)}>불러오기</button>
@@ -574,9 +581,15 @@ export function ReservationList({
         </strong>
         <small>
           {item.count}작업 ·{' '}
-          {item.imageOptions
-            ? `${item.imageOptions.aspectRatio} / ${item.imageOptions.size} · ${item.imageOptions.batchSize ?? workspace.options.imageCount ?? 4}장 · ${(item.imageOptions.mode ?? workspace.options.api?.mode) || '모델 기본값'}`
-            : '기본 이미지 설정'}
+          {item.imageOptions ? (
+            <>
+              <RatioMark ratio={item.imageOptions.aspectRatio} /> / {item.imageOptions.size} ·{' '}
+              {item.imageOptions.batchSize ?? workspace.options.imageCount ?? 4}장 ·{' '}
+              {(item.imageOptions.mode ?? workspace.options.api?.mode) || '모델 기본값'}
+            </>
+          ) : (
+            '기본 이미지 설정'
+          )}
         </small>
         <button
           disabled={busy}

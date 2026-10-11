@@ -1,3 +1,4 @@
+import { RatioMark } from './ratio-mark'
 import { Children, useRef, useState, type ReactNode } from 'react'
 import {
   DndContext,
@@ -203,10 +204,11 @@ export function ImagePicker({
               <button
                 type="button"
                 key={ratio}
+                title={`가로:세로 ${ratio}`}
                 aria-pressed={value.aspectRatio === ratio}
                 onClick={() => onChange({ ...value, aspectRatio: ratio })}
               >
-                {ratio}
+                <RatioMark ratio={ratio} />
               </button>
             ))}
           </div>
@@ -288,7 +290,7 @@ export function ImagePicker({
       )}
       {value && (
         <small>
-          가로:세로 {value.aspectRatio} · {value.size}
+          가로:세로 <RatioMark ratio={value.aspectRatio} /> · {value.size}
         </small>
       )}
     </fieldset>
