@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Copy, Plus, Trash2 } from 'lucide-react'
+import { Copy, FolderPlus, Plus, Trash2 } from 'lucide-react'
 import type { Cast, Character, Chunk, Folder, Library, Preset } from '@shared/pixai/library'
 import { PromptFields, SortableItem, SortableItems, SplitPanes } from './controls'
 import type { PixaiStore } from './store'
@@ -16,6 +16,7 @@ export function LibraryEditor({ store }: { store: PixaiStore }): React.JSX.Eleme
   const [creating, setCreating] = useState<Material | null>(null)
   const [search, setSearch] = useState('')
   const [notice, setNotice] = useState('')
+  const [foldersOpen, setFoldersOpen] = useState(false)
   const list = workspace.library[kind]
   const item = creating ?? list.find((entry) => entry.id === selected)
   async function edit(update: (library: Library) => Library): Promise<void> {
@@ -57,6 +58,17 @@ export function LibraryEditor({ store }: { store: PixaiStore }): React.JSX.Eleme
       <section className="px-pane">
         <header>
           <h2>라이브러리</h2>
+          {kind !== 'presets' && (
+            <button
+              disabled={busy}
+              aria-expanded={foldersOpen}
+              aria-controls="library-folder-tools"
+              onClick={() => setFoldersOpen(!foldersOpen)}
+            >
+              <FolderPlus size={16} />
+              폴더 추가
+            </button>
+          )}
           <button disabled={busy} onClick={create}>
             <Plus size={16} />
             추가
@@ -72,6 +84,7 @@ export function LibraryEditor({ store }: { store: PixaiStore }): React.JSX.Eleme
                 setSelected('')
                 setCreating(null)
                 setSearch('')
+                setFoldersOpen(false)
               }}
             >
               {labels[id]}
@@ -85,6 +98,11 @@ export function LibraryEditor({ store }: { store: PixaiStore }): React.JSX.Eleme
           onChange={(event) => setSearch(event.target.value)}
         />
         <div className="px-scroll">
+          {kind !== 'presets' && foldersOpen && (
+            <div id="library-folder-tools">
+              <MaterialFolders key={`folders:${kind}`} store={store} kind={kind} />
+            </div>
+          )}
           {kind !== 'presets' ? (
             <ChunkList
               key={kind}
@@ -219,10 +237,9 @@ export function LibraryEditor({ store }: { store: PixaiStore }): React.JSX.Eleme
       </section>
       <section className="px-pane">
         <header>
-          <h2>공통문·폴더</h2>
+          <h2>공통문</h2>
         </header>
         <CommonEditor store={store} />
-        {kind !== 'presets' && <MaterialFolders key={kind} store={store} kind={kind} />}
       </section>
     </SplitPanes>
   )
@@ -289,6 +306,42 @@ function MaterialEditor({
             onChange={(event) => setDraft({ ...draft, name: event.target.value })}
           />
         </label>
+        {kind !== 'presets' && (
+          <>
+            <label>
+              {labels[kind]} 폴더
+              <select
+                aria-label={`${labels[kind]} 폴더 선택`}
+                value={(draft as Chunk).folderId ?? ''}
+                onChange={(event) => {
+                  const next = { ...draft } as Chunk
+                  if (event.target.value) next.folderId = event.target.value
+                  else delete next.folderId
+                  setDraft(next)
+                }}
+              >
+                <option value="">미분류</option>
+                {(kind === 'characters'
+                  ? (workspace.library.characterFolders ?? [])
+                  : workspace.library.chunkFolders
+                ).map((folder) => (
+                  <option key={folder.id} value={folder.id}>
+                    {folder.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              새 폴더에 저장
+              <input
+                aria-label="새 폴더에 저장"
+                value={newFolder}
+                onChange={(event) => setNewFolder(event.target.value)}
+                placeholder="비우면 위 폴더 사용"
+              />
+            </label>
+          </>
+        )}
         {'model' in draft ? (
           <>
             <ModelLinkInput
@@ -462,42 +515,6 @@ function MaterialEditor({
                   ))}
                 </select>
               </label>
-            )}
-            {kind !== 'presets' && (
-              <>
-                <label>
-                  {labels[kind]} 폴더
-                  <select
-                    aria-label={`${labels[kind]} 폴더 선택`}
-                    value={(draft as Chunk).folderId ?? ''}
-                    onChange={(event) => {
-                      const next = { ...draft } as Chunk
-                      if (event.target.value) next.folderId = event.target.value
-                      else delete next.folderId
-                      setDraft(next)
-                    }}
-                  >
-                    <option value="">미분류</option>
-                    {(kind === 'characters'
-                      ? (workspace.library.characterFolders ?? [])
-                      : workspace.library.chunkFolders
-                    ).map((folder) => (
-                      <option key={folder.id} value={folder.id}>
-                        {folder.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  새 폴더에 저장
-                  <input
-                    aria-label="새 폴더에 저장"
-                    value={newFolder}
-                    onChange={(event) => setNewFolder(event.target.value)}
-                    placeholder="비우면 위 폴더 사용"
-                  />
-                </label>
-              </>
             )}
           </>
         )}
@@ -717,7 +734,7 @@ function MaterialFolders({
           value={name}
           onChange={(event) => setName(event.target.value)}
         />
-        <button disabled={busy}>폴더 추가</button>
+        <button disabled={busy}>폴더 만들기</button>
       </form>
       <SortableItems
         ids={folders.map((folder) => folder.id)}

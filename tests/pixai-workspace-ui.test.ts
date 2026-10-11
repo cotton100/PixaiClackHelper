@@ -263,6 +263,36 @@ describe('Composition, grouped reservations and backup controls', () => {
     await act(async () => store.getState().register())
     expect(store.getState().workspace.jobs.map((j) => j.imageCount)).toEqual([4, 1])
   })
+  it.each(['캐릭터', '청크'])(
+    'creates %s folders beside the library tabs without editing a material',
+    async (label) => {
+      await act(async () => root.render(h(LibraryEditor, { store })))
+      await click(label)
+      const add = button('폴더 추가')
+      const listPane = add.closest('section')!
+      expect(listPane.textContent).toContain('라이브러리')
+      expect(listPane.querySelector('[aria-label="라이브러리 검색"]')).not.toBeNull()
+      await click('폴더 추가')
+      expect(add.getAttribute('aria-expanded')).toBe('true')
+      await input(`새 ${label} 폴더 이름`, '새 재료 폴더')
+      await act(async () =>
+        button('폴더 만들기')
+          .closest('form')!
+          .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+      )
+      const key = label === '캐릭터' ? 'characterFolders' : 'chunkFolders'
+      expect(
+        store.getState().workspace.library[key]?.some((folder) => folder.name === '새 재료 폴더')
+      ).toBe(true)
+      expect(button(`${label} 폴더 새 재료 폴더`).getAttribute('aria-expanded')).toBe('false')
+      await click('프리셋')
+      expect(container.querySelector('#library-folder-tools')).toBeNull()
+      expect(
+        [...container.querySelectorAll('button')].some((b) => b.textContent === '폴더 추가')
+      ).toBe(false)
+    }
+  )
+
   it('creates a character folder while saving, duplicates within it, and moves back to unfiled', async () => {
     await act(async () => root.render(h(LibraryEditor, { store })))
     await click('캐릭터 폴더 미분류')

@@ -76,3 +76,81 @@ it('disables installation after choosing a different version from the downloaded
   await act(async () => button('0.1.1').click())
   expect(button('백업 후 설치·재시작').disabled).toBe(true)
 })
+
+it('disables updating on the latest version but allows checking again and enabling a new release', async () => {
+  status.currentVersion = '0.1.3'
+  await act(async () => button('업데이트 확인').click())
+  expect(button('최신 버전으로 업데이트').disabled).toBe(true)
+  expect(button('업데이트 확인').disabled).toBe(false)
+  expect(button('업데이트 확인').closest('details')).toBeNull()
+  expect(container.textContent).toContain('현재 버전보다 새로운 정식 버전이 없습니다')
+  invoke.mockClear()
+  await act(async () => button('최신 버전으로 업데이트').click())
+  expect(invoke).not.toHaveBeenCalled()
+  status.releases.unshift({ ...status.releases[1], version: '0.1.4', tag: 'v0.1.4' })
+  await act(async () => button('업데이트 확인').click())
+  expect(button('최신 버전으로 업데이트').disabled).toBe(false)
+  expect(invoke).toHaveBeenCalledWith('pixai:update-check', {})
+  expect(invoke.mock.calls.some(([channel]) => channel === 'pixai:update-latest')).toBe(false)
+  await act(async () => button('최신 버전으로 업데이트').click())
+  expect(invoke).toHaveBeenCalledWith('pixai:update-latest', {})
+})
+
+it('keeps installation disabled before checking, after a failed check and with an empty list', async () => {
+  const releases = status.releases
+  status = { ...status, releases: [] }
+  await act(async () => {
+    root.unmount()
+    root = createRoot(container)
+    root.render(createElement(AppUpdates))
+  })
+  expect(button('최신 버전으로 업데이트').disabled).toBe(true)
+  expect(button('업데이트 확인').disabled).toBe(false)
+  expect(container.textContent).not.toContain('새로운 정식 버전이 없습니다')
+  await act(async () => button('업데이트 확인').click())
+  expect(button('최신 버전으로 업데이트').disabled).toBe(true)
+  status = { ...status, releases, phase: 'error', message: '조회 실패' }
+  await act(async () => button('업데이트 확인').click())
+  expect(button('최신 버전으로 업데이트').disabled).toBe(true)
+  expect(button('업데이트 확인').disabled).toBe(false)
+  status = { ...status, phase: 'idle', message: '' }
+  await act(async () => button('업데이트 확인').click())
+  expect(button('최신 버전으로 업데이트').disabled).toBe(false)
+})
+
+it('does not offer prereleases or releases without installers through the latest update button', async () => {
+  status = {
+    ...status,
+    currentVersion: '0.1.3',
+    releases: [{ ...status.releases[0], version: '0.1.4-beta.1', tag: 'v0.1.4-beta.1' }]
+  }
+  await act(async () => button('업데이트 확인').click())
+  expect(button('최신 버전으로 업데이트').disabled).toBe(true)
+  status.releases.push({
+    ...status.releases[0],
+    version: '0.1.4',
+    tag: 'v0.1.4',
+    prerelease: false,
+    available: false
+  })
+  await act(async () => button('업데이트 확인').click())
+  expect(button('최신 버전으로 업데이트').disabled).toBe(true)
+  expect(container.textContent).toContain('앱 내 설치 파일이 아직 제공되지 않았습니다')
+  expect(container.textContent).not.toContain('새로운 정식 버전이 없습니다')
+})
+
+it('allows checking after the initial status request fails', async () => {
+  invoke.mockRejectedValueOnce(new Error('status unavailable'))
+  await act(async () => {
+    root.unmount()
+    root = createRoot(container)
+    root.render(createElement(AppUpdates))
+  })
+  expect(container.textContent).toContain('업데이트 상태를 읽지 못했습니다')
+  expect(button('최신 버전으로 업데이트').disabled).toBe(true)
+  expect(button('업데이트 확인').disabled).toBe(false)
+  await act(async () => button('업데이트 확인').click())
+  expect(invoke).toHaveBeenCalledWith('pixai:update-check', {})
+  expect(button('최신 버전으로 업데이트').disabled).toBe(false)
+  expect(container.textContent).not.toContain('업데이트 상태를 읽지 못했습니다')
+})

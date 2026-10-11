@@ -45,6 +45,12 @@ export function AppUpdates(): React.JSX.Element {
     }
   }
   const locked = busy || ['checking', 'downloading', 'installing'].includes(state?.phase ?? '')
+  const checked = !!state?.releases.length && state.phase !== 'error' && !error
+  const newerReleases =
+    state?.releases.filter(
+      (item) => !item.prerelease && compareVersions(item.version, state.currentVersion) > 0
+    ) ?? []
+  const canUpdate = checked && newerReleases.some((item) => item.available)
   const visible = state?.releases.filter((release) => preview || !release.prerelease) ?? []
   const release = visible.find((item) => item.version === selected)
   const older = release && state && compareVersions(release.version, state.currentVersion) < 0
@@ -55,19 +61,34 @@ export function AppUpdates(): React.JSX.Element {
         <h2>앱 업데이트 · 버전 선택</h2>
         <span>{state ? `현재 ${state.currentVersion}` : 'PixaiClackHelper'}</span>
       </header>
-      <p>버튼 한 번으로 최신 정식 버전을 받아 자료를 백업한 뒤 설치하고 앱을 다시 엽니다.</p>
+      <p>업데이트를 확인한 뒤 새 정식 버전이 있으면 자료를 백업하고 설치·재시작합니다.</p>
       {browser ? (
         <p>Windows 설치 앱에서 사용할 수 있습니다.</p>
       ) : (
         <>
-          <button
-            className="px-primary"
-            disabled={locked || !state?.supported}
-            onClick={() => void run(() => window.nais.invoke('pixai:update-latest', {}))}
-          >
-            <Download size={16} />
-            최신 버전으로 업데이트
-          </button>
+          <div className="px-toolbar">
+            <button
+              disabled={locked || state?.phase === 'ready'}
+              onClick={() => void run(() => window.nais.invoke('pixai:update-check', {}))}
+            >
+              <RefreshCw size={16} />
+              업데이트 확인
+            </button>
+            <button
+              className="px-primary"
+              disabled={locked || !state?.supported || !canUpdate}
+              onClick={() => void run(() => window.nais.invoke('pixai:update-latest', {}))}
+            >
+              <Download size={16} />
+              최신 버전으로 업데이트
+            </button>
+          </div>
+          {!locked && checked && newerReleases.length === 0 && (
+            <p role="status">현재 버전보다 새로운 정식 버전이 없습니다.</p>
+          )}
+          {!locked && checked && newerReleases.length > 0 && !canUpdate && (
+            <p role="status">새 정식 버전의 앱 내 설치 파일이 아직 제공되지 않았습니다.</p>
+          )}
           <small>
             실행 중인 생성·저장을 먼저 마쳐 주세요. 설치 중 앱이 종료되며 Windows 권한 확인이 나올
             수 있습니다.
@@ -75,13 +96,6 @@ export function AppUpdates(): React.JSX.Element {
           <details>
             <summary>다른 버전 선택 · 변경 내용</summary>
             <div className="px-toolbar">
-              <button
-                disabled={locked || state?.phase === 'ready'}
-                onClick={() => void run(() => window.nais.invoke('pixai:update-check', {}))}
-              >
-                <RefreshCw size={16} />
-                출시 버전 확인
-              </button>
               <label className="px-check">
                 <input
                   type="checkbox"
