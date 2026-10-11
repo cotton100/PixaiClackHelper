@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import type { SceneCard } from '@shared/pixai/library'
 import { Compose } from './compose'
-import { emptyDraft } from './composition'
+import { emptyDraft, type ComposeDraft } from './composition'
 import { Scenes } from './scenes'
 import { LibraryEditor } from './library-editor'
 import { BackupSettings } from './settings'
@@ -24,14 +24,20 @@ export default function PixaiApp({
 }: {
   store?: PixaiStore
 }): React.JSX.Element {
-  const { workspace, ready, busy, error } = store()
+  const { workspace, ready, busy, draftSaving, error } = store()
   const [tab, setTab] = useState('compose')
-  const [draft, setDraft] = useState(emptyDraft)
+  const draft = workspace.composeDraft ?? emptyDraft()
   const [sceneEditId, setSceneEditId] = useState('')
   const [epoch, setEpoch] = useState(0)
   useEffect(() => {
     void store.getState().hydrate()
   }, [store])
+  function setDraft(next: ComposeDraft): void {
+    void store
+      .getState()
+      .saveDraft(next)
+      .catch(() => {}) // The store displays a failed save and keeps the previous state.
+  }
   function openScene(card: SceneCard): void {
     setDraft({
       ...draft,
@@ -88,7 +94,7 @@ export default function PixaiApp({
           </button>
         ))}
         <span className="px-save-state" role="status">
-          {busy ? '저장 중…' : ready ? '로컬 작업 공간' : '불러오는 중…'}
+          {busy || draftSaving ? '저장 중…' : ready ? '로컬 작업 공간' : '불러오는 중…'}
         </span>
       </nav>
       {error && (
@@ -109,7 +115,10 @@ export default function PixaiApp({
       )}
       {ready ? (
         <main className="px-content" key={epoch}>
-          <fieldset className="px-workspace-lock" disabled={busy}>
+          <fieldset
+            className="px-workspace-lock"
+            disabled={busy || (draftSaving && tab === 'settings')}
+          >
             <div hidden={tab !== 'compose'} className="px-page">
               <Compose
                 store={store}
@@ -140,7 +149,6 @@ export default function PixaiApp({
                 store={store}
                 onImport={() => {
                   setEpoch((value) => value + 1)
-                  setDraft(emptyDraft())
                   setSceneEditId('')
                 }}
               />

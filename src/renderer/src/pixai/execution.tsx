@@ -25,14 +25,19 @@ export function ApiConnection(): React.JSX.Element {
     if (!browser)
       void window.nais
         .invoke('pixai:connection', {})
-        .then(setState)
+        .then((value) => {
+          setState(value)
+          setRemember(value.remembered)
+        })
         .catch(() => setError('API 연결 상태를 읽지 못했습니다.'))
   }, [browser])
   async function action(run: () => Promise<ConnectionStatus>): Promise<void> {
     setBusy(true)
     setError('')
     try {
-      setState(await run())
+      const value = await run()
+      setState(value)
+      setRemember(value.remembered)
     } catch (e) {
       setError(e instanceof Error ? e.message : '변경 실패')
     } finally {

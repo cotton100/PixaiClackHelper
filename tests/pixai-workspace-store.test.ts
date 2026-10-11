@@ -38,6 +38,88 @@ function fixture(): {
 }
 
 describe('PixAIS workspace persistence and atomic actions', () => {
+  it('serializes rapid draft saves with later library changes and rolls back a failed draft save', async () => {
+    const f = fixture()
+    await f.store.getState().hydrate()
+    const base = {
+      presetId: 'p1',
+      characterId: 'c1',
+      sceneIds: ['s1'],
+      count: 1,
+      triggerPosition: 'end' as const
+    }
+    const first = f.store.getState().saveDraft(base)
+    const second = f.store.getState().saveDraft({ ...base, count: 12 })
+    const edit = f.store
+      .getState()
+      .editLibrary((library) => ({
+        ...library,
+        common: { prompt: 'edited common', negativePrompt: '' }
+      }))
+    await Promise.all([first, second, edit])
+    const before = f.persisted()
+    expect(readWorkspace(before).composeDraft?.count).toBe(12)
+    expect(readWorkspace(before).library.common.prompt).toBe('edited common')
+    f.storage.write.mockRejectedValueOnce(new Error('disk full'))
+    await f.store.getState().saveDraft({ ...base, count: 7 })
+    expect(f.persisted()).toBe(before)
+    expect(f.store.getState().workspace.composeDraft?.count).toBe(12)
+    expect(f.store.getState().error).toContain('저장하지 못했습니다')
+    expect(f.store.getState().draftSaving).toBe(false)
+  })
+  it('retains current composition, trigger order and image settings across a fresh store', async () => {
+    const f = fixture()
+    await f.store.getState().hydrate()
+    const draft = {
+      presetId: 'p1',
+      characterId: 'c2',
+      sceneIds: ['s2', 's1'],
+      count: 7,
+      triggerPosition: 'end' as const,
+      imageOptions: {
+        aspectRatio: '5:3',
+        size: '1.5k' as const,
+        batchSize: 4 as const,
+        mode: 'ultra' as const
+      }
+    }
+    await f.store.getState().commit((w) => ({ ...w, composeDraft: draft }))
+    await f.store.getState().reserve(f.plan)
+    await f.store.getState().register()
+    const fresh = createPixaiStore(f.storage)
+    await fresh.getState().hydrate()
+    expect(fresh.getState().ready).toBe(true)
+    expect(fresh.getState().workspace.composeDraft).toEqual(draft)
+    expect(fresh.getState().workspace.jobs).toHaveLength(18)
+    expect(fresh.getState().workspace.library.characters).toEqual(pixaiLibrary().characters)
+  })
+  it('retains incomplete repeat input and loaded scene snapshots without selecting replacement materials', async () => {
+    const f = fixture()
+    await f.store.getState().hydrate()
+    const card = {
+      ...pixaiLibrary().sceneCards![0],
+      extra: { prompt: 'saved extra', negativePrompt: 'saved negative' }
+    }
+    await f.store.getState().commit((w) => ({
+      ...w,
+      composeDraft: {
+        presetId: 'removed-preset',
+        characterId: 'removed-character',
+        sceneIds: ['s1'],
+        count: NaN,
+        triggerPosition: 0,
+        card
+      }
+    }))
+    const reloaded = readWorkspace(f.persisted())
+    expect(reloaded.composeDraft?.count).toBeNaN()
+    expect(reloaded.composeDraft?.presetId).toBe('removed-preset')
+    expect(reloaded.composeDraft?.card).toEqual(card)
+    expect(reloaded.composeDraft?.triggerPosition).toBe(0)
+    expect(
+      readWorkspace(JSON.stringify({ ...emptyWorkspace(), library: pixaiLibrary() })).composeDraft
+    ).toBeUndefined()
+  })
   it('reserves 3 × 3, registers 18 frozen jobs once and reloads the same IDs', async () => {
     const f = fixture()
     await f.store.getState().hydrate()

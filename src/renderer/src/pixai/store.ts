@@ -16,6 +16,7 @@ import {
 } from '@shared/pixai/batch-reserve'
 import type { BatchPlan } from '@shared/pixai/library'
 import { resolveImageOptions } from '@shared/pixai/generation-options'
+import { readComposeDraft, type ComposeDraft } from './composition'
 
 export const WORKSPACE_KEY = 'pixais.workspace.v1'
 export interface QueuedJob {
@@ -29,6 +30,7 @@ export interface Workspace {
   options: SettingsOptions
   jobs: QueuedJob[]
   widths: Record<string, number[]>
+  composeDraft?: ComposeDraft
 }
 export interface WorkspaceStorage {
   read(): Promise<string | null>
@@ -96,7 +98,8 @@ export function readWorkspace(text: string | null): Workspace {
     library: strictLibrary(raw.library),
     options: normalizeSettingsOptions(raw.options),
     jobs,
-    widths
+    widths,
+    ...(raw.composeDraft === undefined ? {} : { composeDraft: readComposeDraft(raw.composeDraft) })
   }
 }
 
@@ -104,10 +107,12 @@ interface PixaiState {
   workspace: Workspace
   ready: boolean
   busy: boolean
+  draftSaving: boolean
   error: string
   revision: number
   hydrate(): Promise<void>
   commit(update: (workspace: Workspace) => Workspace): Promise<void>
+  saveDraft(draft: ComposeDraft): Promise<void>
   editLibrary(update: (library: Library) => Library): Promise<void>
   importBackup(backup: SettingsBackup, expectedRevision: number): Promise<void>
   reserve(plan: BatchPlan): Promise<BatchExpansion>
@@ -126,10 +131,14 @@ export function createPixaiStore(
   storage: WorkspaceStorage = databaseStorage
 ): UseBoundStore<StoreApi<PixaiState>> {
   let loading: Promise<void> | undefined
+  let draftWrites: Promise<void> = Promise.resolve()
+  let draftSequence = 0
+  let savedDraft: ComposeDraft | undefined
   return create<PixaiState>((set, get) => ({
     workspace: emptyWorkspace(),
     ready: false,
     busy: false,
+    draftSaving: false,
     error: '',
     revision: 0,
     clearError: () => set({ error: '' }),
@@ -155,9 +164,12 @@ export function createPixaiStore(
       if (get().busy) throw new Error('저장 중입니다. 잠시 후 다시 시도해 주세요.')
       set({ busy: true, error: '' })
       try {
+        // A normal edit must use the last persisted draft, never race its writes.
+        await draftWrites
         const next = update(structuredClone(get().workspace))
         next.library = strictLibrary(next.library)
         next.options = normalizeSettingsOptions(next.options)
+        if (next.composeDraft !== undefined) next.composeDraft = readComposeDraft(next.composeDraft)
         const text = JSON.stringify(next)
         try {
           await storage.write(text)
@@ -174,13 +186,52 @@ export function createPixaiStore(
         set({ busy: false })
       }
     },
+    saveDraft: (value) => {
+      if (!get().ready || get().busy)
+        return Promise.reject(new Error('저장이 끝난 뒤 다시 변경해 주세요.'))
+      const draft = readComposeDraft(value)
+      if (!get().draftSaving) savedDraft = get().workspace.composeDraft
+      const sequence = ++draftSequence
+      set({ workspace: { ...get().workspace, composeDraft: draft }, draftSaving: true, error: '' })
+      // Serialize full-workspace writes. Rapid input keeps the field enabled;
+      // the last selection wins and later library edits wait for it.
+      const write = draftWrites
+        .catch(() => {})
+        .then(async () => {
+          const next = structuredClone(get().workspace)
+          await storage.write(JSON.stringify(next))
+          savedDraft = next.composeDraft
+        })
+      draftWrites = write
+      return write.then(
+        () => {
+          if (sequence === draftSequence) set({ draftSaving: false, revision: get().revision + 1 })
+        },
+        () => {
+          if (sequence === draftSequence)
+            set({
+              workspace: { ...get().workspace, composeDraft: savedDraft },
+              draftSaving: false,
+              error:
+                '조합 선택을 저장하지 못했습니다. 마지막 저장 상태를 유지합니다. 다시 시도해 주세요.'
+            })
+          // Keep the failure visible but allow a later explicit edit to retry.
+          if (sequence === draftSequence) draftWrites = Promise.resolve()
+        }
+      )
+    },
     editLibrary: (update) =>
       get().commit((workspace) => ({ ...workspace, library: update(workspace.library) })),
     importBackup: (backup, expectedRevision) =>
       get().commit((workspace) => {
         if (get().revision !== expectedRevision)
           throw new Error('미리보기 후 자료가 바뀌었습니다. 파일을 다시 골라 확인해 주세요.')
-        return { ...workspace, library: backup.library, options: backup.options }
+        return {
+          ...workspace,
+          library: backup.library,
+          options: backup.options,
+          composeDraft: undefined
+        }
       }),
     reserve: async (plan) => {
       let expansion: BatchExpansion | undefined

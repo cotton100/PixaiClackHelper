@@ -55,7 +55,7 @@ function fixture() {
 describe('PixAIS release and compatibility contract', () => {
   it('tracks the actual database migration version and explicit data epoch', () => {
     expect(DATABASE_VERSION).toBe(migrations.length)
-    expect(DATA_EPOCH).toBe(2)
+    expect(DATA_EPOCH).toBe(3)
   })
   it('sorts versions numerically and prereleases before the matching stable version', () => {
     expect(compareVersions('0.1.10', '0.1.9')).toBe(1)
@@ -91,10 +91,16 @@ describe('PixAIS release and compatibility contract', () => {
     expect(() => assertCompatible(valid, 19)).toThrow()
     expect(() => assertCompatible({ ...valid, dataEpoch: 1 }, 18)).toThrow()
     expect(() =>
-      assertCompatible({ ...valid, dataEpoch: 3, minReadableDataEpoch: 1 }, 18)
+      assertCompatible({ ...valid, dataEpoch: 2, minReadableDataEpoch: 1 }, 18)
+    ).toThrow()
+    expect(() =>
+      assertCompatible({ ...valid, dataEpoch: DATA_EPOCH + 1, minReadableDataEpoch: 1 }, 18)
     ).not.toThrow()
     expect(() =>
-      assertCompatible({ ...valid, dataEpoch: 3, minReadableDataEpoch: 3 }, 18)
+      assertCompatible(
+        { ...valid, dataEpoch: DATA_EPOCH + 1, minReadableDataEpoch: DATA_EPOCH + 1 },
+        18
+      )
     ).toThrow()
     expect(() => parseManifest({ ...manifest(), minReadableDataEpoch: 9 }, '0.1.3')).toThrow()
   })
@@ -189,7 +195,7 @@ describe('PixAIS explicit update flow', () => {
   it('never starts a download when compatibility validation fails', async () => {
     const { updates, io, engine } = fixture()
     await updates.check()
-    io.json.mockResolvedValue({ ...manifest(), dataEpoch: 3 })
+    io.json.mockResolvedValue({ ...manifest(), dataEpoch: DATA_EPOCH + 1 })
     expect((await updates.download('0.1.3')).phase).toBe('error')
     expect(engine.download).not.toHaveBeenCalled()
     await expect(updates.install(true)).rejects.toThrow()

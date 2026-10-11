@@ -1,9 +1,8 @@
 import electronUpdater from 'electron-updater'
-import { createHash, randomUUID } from 'node:crypto'
-import { createReadStream, mkdirSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { createHash } from 'node:crypto'
+import { createReadStream } from 'node:fs'
+import { dirname } from 'node:path'
 import { app } from 'electron'
-import { getDb } from '../db'
 import { releaseBase, type UpdateManifest } from '../../shared/pixai/updates'
 import type { UpdateEngine } from './updates'
 
@@ -63,13 +62,4 @@ export function makeUpdateEngine(
       updater.quitAndInstall(silent, true)
     }
   }
-}
-
-export function backupBeforeUpdate(): string {
-  // Separate from rotating migration backups: never prune a version-change backup here.
-  const dir = join(app.getPath('userData'), 'version-backups')
-  mkdirSync(dir, { recursive: true })
-  const file = join(dir, `before-${app.getVersion()}-${randomUUID()}.db`)
-  getDb().prepare('VACUUM INTO ?').run(file)
-  return file
 }

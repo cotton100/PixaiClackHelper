@@ -11,7 +11,8 @@ import { PixaiVault } from './vault'
 import { checkFolder, saveMedia } from './files'
 import { readModelLink } from './model-link'
 import { PixaisUpdates, publicUpdateJson, canInstallUpdate } from './updates'
-import { makeUpdateEngine, backupBeforeUpdate } from './update-engine'
+import { makeUpdateEngine } from './update-engine'
+import { backupBeforeUpdate, preserveSettingsOnVersionChange } from './settings-backup'
 import type { PixaiInvokeMap, ConnectionStatus } from '../../shared/pixai/execution'
 
 const smoke = process.argv.includes('--pixais-smoke-test')
@@ -37,10 +38,11 @@ if (ownsInstance)
       app.setAppUserModelId('com.cotton100.pixais')
       try {
         initDb()
+        preserveSettingsOnVersionChange()
       } catch {
         dialog.showErrorBox(
           'PixaiClackHelper',
-          '작업 공간을 열지 못했습니다. 기존 자료를 보존하고 종료합니다.'
+          '작업 공간 열기 또는 설정 백업에 실패했습니다. 기존 자료를 보존하고 종료합니다.'
         )
         app.quit()
         return
