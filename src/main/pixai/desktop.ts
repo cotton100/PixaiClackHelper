@@ -11,10 +11,11 @@ import { PixaiVault } from './vault'
 import { SceneThumbnails } from './scene-thumbnails'
 import { checkFolder, saveMedia } from './files'
 import { readModelLink } from './model-link'
+import { readImageInfo, embedGenerationInfo } from './image-info'
 import { PixaisUpdates, publicUpdateJson, canInstallUpdate } from './updates'
 import { makeUpdateEngine } from './update-engine'
 import { backupBeforeUpdate, preserveSettingsOnVersionChange } from './settings-backup'
-import type { PixaiInvokeMap, ConnectionStatus } from '../../shared/pixai/execution'
+import type { PixaiInvokeMap, ConnectionStatus, ExecutionJob } from '../../shared/pixai/execution'
 
 const smoke = process.argv.includes('--pixais-smoke-test')
 app.setName('PixAIS')
@@ -71,7 +72,7 @@ if (ownsInstance)
           task: (id) => client.task(id),
           save: async (job, id) => {
             const file = await saveMedia(client, job, id)
-            await thumbnails.remember(job.sourceSceneId, file)
+            await thumbnails.remember(job.sourceSceneId, file.path)
             return file
           },
           sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -85,6 +86,8 @@ if (ownsInstance)
         return
       }
       let outputDir = getSetting('pixais.outputDir') ?? ''
+      let embedMetadata = getSetting('pixais.embedMetadata.v1') === 'true'
+      let readingImage = false
       const updates = new PixaisUpdates({
         version: app.getVersion(),
         supported: app.isPackaged && process.platform === 'win32' && process.arch === 'x64',
@@ -105,6 +108,7 @@ if (ownsInstance)
         remembered: vault.remembered,
         encryptionAvailable: vault.available(),
         outputDir,
+        embedMetadata,
         maxInFlight
       })
       const idle = (): void => {
@@ -126,6 +130,26 @@ if (ownsInstance)
         })
       }
       handle('pixai:status', () => runner.status())
+      handle('pixai:image-info', async (req) => {
+        if (readingImage) throw new Error('이미지를 확인 중입니다. 잠시 후 다시 시도해 주세요.')
+        readingImage = true
+        try {
+          return await readImageInfo(req?.bytes)
+        } catch {
+          throw new Error(
+            '이미지 정보를 읽지 못했습니다. 정지 PNG·JPEG·WebP, 32MB·4천만 픽셀 이하인지 확인해 주세요.'
+          )
+        } finally {
+          readingImage = false
+        }
+      })
+      handle('pixai:metadata-setting', (req) => {
+        idle()
+        if (typeof req?.enabled !== 'boolean') throw new Error('기록 설정을 확인해 주세요.')
+        setSetting('pixais.embedMetadata.v1', String(req.enabled))
+        embedMetadata = req.enabled
+        return connection()
+      })
       handle('pixai:scene-thumbnails', (req) => thumbnails.status(req?.revision))
       handle('pixai:update-status', () => updates.status())
       handle('pixai:update-check', () => updates.check())
@@ -174,7 +198,7 @@ if (ownsInstance)
         if (req.costsAccepted !== true) throw new Error('생성 비용 안내를 확인해 주세요.')
         await checkFolder(outputDir)
         updateIdle()
-        runner.start(req.jobs, outputDir, maxInFlight, req.relocatePending === true)
+        runner.start(req.jobs, outputDir, maxInFlight, req.relocatePending === true, embedMetadata)
         return runner.status()
       })
       handle('pixai:dismiss-unknown', (req) => {
@@ -302,6 +326,63 @@ if (ownsInstance)
           return !!pane && ['생성당 이미지 수', 'Ultra', '4장 배치'].every(text => pane.textContent.includes(text));
         })()`)
         result.renderer &&= composeOk
+        const sharp = (await import('sharp')).default
+        const sample = embedGenerationInfo(
+          await sharp({ create: { width: 160, height: 96, channels: 3, background: '#315e56' } })
+            .png()
+            .toBuffer(),
+          {
+            payload: {
+              prompt: 'metadata-smoke-prompt',
+              negativePrompt: 'metadata-smoke-negative',
+              modelVersionId: '100',
+              loras: [],
+              seed: 42,
+              batchSize: 4,
+              aspectRatio: '5:3',
+              size: '1k',
+              promptHelper: 'disable'
+            },
+            metadataReferences: { modelId: '10', loraModelIds: [] }
+          } as unknown as ExecutionJob,
+          '11'
+        )
+        const infoOk = await win.webContents.executeJavaScript(`(async () => {
+          Array.from(document.querySelectorAll('.px-nav button')).find(b => b.textContent === '이미지 정보')?.click();
+          await new Promise(resolve => setTimeout(resolve, 100));
+          const bytes = Uint8Array.from(atob(${JSON.stringify(sample.toString('base64'))}), c => c.charCodeAt(0));
+          const input = document.querySelector('input[aria-label="이미지 파일 선택"]');
+          const transfer = new DataTransfer(); transfer.items.add(new File([bytes], 'metadata-smoke.png', {type:'image/png'}));
+          input.files = transfer.files; input.dispatchEvent(new Event('change', {bubbles:true}));
+          for(let n=0; n<50 && !document.querySelector('.px-image-field'); n++) await new Promise(resolve => setTimeout(resolve, 100));
+          for(let n=0; n<50 && !(document.querySelector('.px-image-preview')?.naturalWidth > 0); n++) await new Promise(resolve => setTimeout(resolve, 100));
+          const section = document.querySelector('.px-image-info');
+          const status = await window.nais.invoke('pixai:status', {});
+          return section.textContent.includes('metadata-smoke-prompt') && section.textContent.includes('요청 시드') && !section.querySelector('input[type="checkbox"]:checked') && status.jobs.length === 0 && section.querySelector('.px-image-preview')?.naturalWidth === 160 && document.documentElement.scrollWidth <= innerWidth;
+        })()`)
+        result.renderer &&= infoOk
+        writeFileSync(
+          join(app.getPath('userData'), 'image-info.png'),
+          (await win.webContents.capturePage()).toPNG()
+        )
+        win.setSize(853, 740)
+        await new Promise((resolve) => setTimeout(resolve, 150))
+        writeFileSync(
+          join(app.getPath('userData'), 'image-info-narrow.png'),
+          (await win.webContents.capturePage()).toPNG()
+        )
+        const applyOk = await win.webContents.executeJavaScript(`(async () => {
+          for(const label of ['긍정 프롬프트 적용','부정 프롬프트 적용','PixAI 모델·LoRA 버전 적용']) document.querySelector('input[aria-label="'+label+'"]')?.click();
+          await new Promise(resolve => setTimeout(resolve, 100));
+          [...document.querySelectorAll('.px-image-info button')].find(b=>b.textContent==='선택 정보로 조합 열기')?.click();
+          await new Promise(resolve => setTimeout(resolve, 100));
+          [...document.querySelectorAll('.px-image-info button')].find(b=>b.textContent==='확인하고 새 조합 열기')?.click();
+          await new Promise(resolve => setTimeout(resolve, 200));
+          const saved = JSON.parse((await window.nais.invoke('settings:get',{key:'pixais.workspace.v1'})).value);
+          const status = await window.nais.invoke('pixai:status', {});
+          return saved.library.scenes.at(-1)?.prompt==='metadata-smoke-prompt' && saved.jobs.length===0 && status.jobs.length===0 && document.querySelector('.px-nav button[aria-current="page"]').textContent==='조합 예약';
+        })()`)
+        result.renderer &&= applyOk
         writeFileSync(
           join(app.getPath('userData'), 'compose.png'),
           (await win.webContents.capturePage()).toPNG()

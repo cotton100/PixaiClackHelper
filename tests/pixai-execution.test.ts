@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { buildPayload, type QueuedJob } from '../src/shared/pixai/execution'
+import { buildPayload, type QueuedJob, type SavedMedia } from '../src/shared/pixai/execution'
 import { expandReservations } from '../src/shared/pixai/library'
 import { pixaiLibrary } from './fixtures/pixai-workspace'
 import { PixaiRunner } from '../src/main/pixai/runner'
@@ -45,7 +45,9 @@ function fixture() {
       status: 'completed',
       outputs: { mediaIds: ['11', '12', '13', '14'] }
     })),
-    save: vi.fn(async (_job: unknown, id: string) => `/output/${id}.png`),
+    save: vi.fn(async (_job: unknown, id: string): Promise<SavedMedia> => ({
+      path: `/output/${id}.png`
+    })),
     sleep: vi.fn(async () => {})
   }
   return { io, runner: new PixaiRunner(io), saved: () => persisted }
@@ -54,6 +56,50 @@ async function finished(runner: PixaiRunner): Promise<void> {
   await vi.waitFor(() => expect(runner.status().running).toBe(false))
 }
 describe('PixAI generation boundary', () => {
+  it('preserves original-save warnings through a later failure, recovery and completed restart without resubmitting', async () => {
+    const f = fixture()
+    const warning = '생성 요청 정보를 추가하지 못해 원본 그대로 저장했습니다.'
+    f.io.save
+      .mockResolvedValueOnce({ path: '/output/11.png', warning })
+      .mockRejectedValueOnce(new Error('disk full'))
+    f.runner.start([job()], '/output', 1, false, true)
+    await finished(f.runner)
+    expect(f.runner.status().jobs[0]).toMatchObject({
+      state: 'save_failed',
+      files: ['/output/11.png'],
+      warnings: [`1번째 이미지: ${warning}`]
+    })
+    f.io.save.mockResolvedValueOnce({ path: '/output/12.png', warning })
+    const restored = new PixaiRunner(f.io)
+    restored.start([], '/output', 1, false, false)
+    await finished(restored)
+    const reopened = new PixaiRunner(f.io)
+    expect(reopened.status().jobs[0]).toMatchObject({
+      state: 'done',
+      error: '',
+      embedMetadata: true,
+      files: ['/output/11.png', '/output/12.png', '/output/13.png', '/output/14.png'],
+      warnings: [`1번째 이미지: ${warning}`, `2번째 이미지: ${warning}`]
+    })
+    expect(f.io.save.mock.calls.filter((call) => call[1] === '11')).toHaveLength(1)
+    expect(f.io.create).toHaveBeenCalledOnce()
+  })
+  it('freezes metadata consent and reference IDs before submission and preserves them on recovery', async () => {
+    const f = fixture()
+    f.io.save.mockRejectedValueOnce(new Error('disk full'))
+    f.runner.start([job()], '/output', 2, false, true)
+    await finished(f.runner)
+    expect(f.runner.status().jobs[0]).toMatchObject({
+      embedMetadata: true,
+      metadataReferences: { modelId: '10', loraModelIds: ['20'] },
+      state: 'save_failed'
+    })
+    const restored = new PixaiRunner(f.io)
+    restored.start([], '/output', 2, false, false)
+    await finished(restored)
+    expect(restored.status().jobs[0].embedMetadata).toBe(true)
+    expect(f.io.create).toHaveBeenCalledOnce()
+  })
   it('freezes 4-image landscape requests and does not duplicate LoRA triggers', () => {
     const payload = buildPayload(job(), 42)
     expect(payload).toMatchObject({
@@ -124,7 +170,9 @@ describe('PixAI generation boundary', () => {
   })
   it('resumes a partial image save without creating another task or re-saving known outputs', async () => {
     const f = fixture()
-    f.io.save.mockResolvedValueOnce('/output/11.png').mockRejectedValueOnce(new Error('disk full'))
+    f.io.save
+      .mockResolvedValueOnce({ path: '/output/11.png' })
+      .mockRejectedValueOnce(new Error('disk full'))
     f.runner.start([job()], '/output', 1)
     await finished(f.runner)
     expect(f.runner.status().jobs[0]).toMatchObject({
@@ -174,12 +222,14 @@ describe('PixAI generation boundary', () => {
   })
   it('moves only remaining output destinations after an explicit folder change', async () => {
     const f = fixture()
-    f.io.save.mockResolvedValueOnce('/old/11.png').mockRejectedValueOnce(new Error('drive missing'))
+    f.io.save
+      .mockResolvedValueOnce({ path: '/old/11.png' })
+      .mockRejectedValueOnce(new Error('drive missing'))
     f.runner.start([job()], '/old', 1)
     await finished(f.runner)
-    f.io.save.mockImplementation(
-      async (value, id) => `${(value as { outputDir: string }).outputDir}/${id}.png`
-    )
+    f.io.save.mockImplementation(async (value, id) => ({
+      path: `${(value as { outputDir: string }).outputDir}/${id}.png`
+    }))
     const restored = new PixaiRunner(f.io)
     restored.start([], '/new', 1, true)
     await finished(restored)

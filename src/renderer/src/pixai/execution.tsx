@@ -104,6 +104,24 @@ export function ApiConnection(): React.JSX.Element {
             </button>
           </div>
           <h3>이미지 저장 폴더</h3>
+          <label className="px-check">
+            <input
+              type="checkbox"
+              checked={state?.embedMetadata ?? false}
+              disabled={busy || !state}
+              onChange={(e) =>
+                void action(() =>
+                  window.nais.invoke('pixai:metadata-setting', { enabled: e.target.checked })
+                )
+              }
+            />
+            PNG 안에 생성 요청 정보 기록
+          </label>
+          <small>
+            기본 꺼짐. 다음에 새로 시작하는 작업부터 적용합니다. PNG 픽셀·기존 정보는 유지하고
+            프롬프트·모델·LoRA·요청 시드를 넣습니다. 이미지를 공유하면 이 정보도 전달됩니다.
+            JPEG·WebP는 원본 그대로 저장합니다. 별도 JSON은 만들지 않습니다.
+          </small>
           <p className="px-path">{state?.outputDir || '폴더 미선택'}</p>
           <button
             disabled={busy}
@@ -444,6 +462,11 @@ export function ExecutionQueue({ store }: { store: PixaiStore }): React.JSX.Elem
                     {record?.taskId ? ` · 작업 ID ${record.taskId}` : ''}
                   </small>
                   {record?.error && <p className="px-error">{record.error}</p>}
+                  {record?.warnings?.map((warning, index) => (
+                    <p className="px-warning" key={index}>
+                      {warning}
+                    </p>
+                  ))}
                   {record?.state === 'submission_unknown' && (
                     <div className="px-confirm">
                       <p>

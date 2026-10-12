@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   Clapperboard,
+  FileImage,
   Layers,
   Library,
   ListOrdered,
@@ -18,6 +19,7 @@ import { BackupSettings } from './settings'
 import { usePixaiStore, type PixaiStore } from './store'
 import './pixai.css'
 import { ExecutionQueue } from './execution'
+import { ImageInformation } from './image-info'
 
 export default function PixaiApp({
   store = usePixaiStore
@@ -53,6 +55,7 @@ export default function PixaiApp({
     { id: 'scenes', label: '씬', Icon: Clapperboard },
     { id: 'library', label: '라이브러리', Icon: Library },
     { id: 'queue', label: '대기열', Icon: ListOrdered },
+    { id: 'image-info', label: '이미지 정보', Icon: FileImage },
     { id: 'settings', label: '설정', Icon: Settings }
   ]
   return (
@@ -151,6 +154,9 @@ export default function PixaiApp({
             </div>
             <div hidden={tab !== 'queue'} className="px-page">
               <ExecutionQueue store={store} />
+            </div>
+            <div hidden={tab !== 'image-info'} className="px-page">
+              <ImageInformation store={store} onCompose={() => setTab('compose')} />
             </div>
             <div hidden={tab !== 'settings'} className="px-page">
               <BackupSettings

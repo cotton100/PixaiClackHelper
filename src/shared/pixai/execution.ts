@@ -6,6 +6,7 @@ import {
 } from './library'
 import type { ModelLinkInfo } from './model-link'
 import type { UpdateStatus } from './updates'
+import type { ImageInfo } from './image-info'
 
 export interface QueuedJob {
   request: ExpandedRequest
@@ -37,6 +38,8 @@ export type JobState =
   | 'done'
   | 'cancelled'
 export interface ExecutionJob {
+  embedMetadata?: boolean
+  metadataReferences?: { modelId: string; loraModelIds: string[] }
   id: string
   title: string
   payload: ApiPayload
@@ -48,8 +51,13 @@ export interface ExecutionJob {
   batchName?: string
   mediaIds?: string[]
   files: string[]
+  warnings?: string[]
   error: string
   updatedAt: number
+}
+export interface SavedMedia {
+  path: string
+  warning?: string
 }
 export interface RunnerStatus {
   running: boolean
@@ -58,6 +66,7 @@ export interface RunnerStatus {
   jobs: ExecutionJob[]
 }
 export interface ConnectionStatus {
+  embedMetadata?: boolean
   connected: boolean
   remembered: boolean
   encryptionAvailable: boolean
@@ -74,6 +83,8 @@ export interface SceneThumbnailStatus {
   images?: SceneThumbnail[]
 }
 export interface PixaiInvokeMap {
+  'pixai:image-info': { req: { bytes: Uint8Array }; res: ImageInfo }
+  'pixai:metadata-setting': { req: { enabled: boolean }; res: ConnectionStatus }
   'pixai:scene-thumbnails': { req: { revision?: string }; res: SceneThumbnailStatus }
   'pixai:update-status': { req: Record<string, never>; res: UpdateStatus }
   'pixai:update-check': { req: Record<string, never>; res: UpdateStatus }

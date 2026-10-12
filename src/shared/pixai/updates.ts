@@ -1,6 +1,6 @@
 export const UPDATE_REPO = 'cotton100/PixaiClackHelper'
 // Increment when a workspace/runner format can no longer be read by older PixAIS releases.
-export const DATA_EPOCH = 7
+export const DATA_EPOCH = 8
 // Releases declare the oldest workspace format they can migrate/read.
 export const MIN_READABLE_DATA_EPOCH = 1
 export const DATABASE_VERSION = 19

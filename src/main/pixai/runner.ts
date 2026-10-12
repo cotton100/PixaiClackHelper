@@ -4,7 +4,8 @@ import {
   numericId,
   type ExecutionJob,
   type QueuedJob,
-  type RunnerStatus
+  type RunnerStatus,
+  type SavedMedia
 } from '../../shared/pixai/execution'
 import { presetIdentifier, presetText } from '../../shared/pixai/library'
 import { ApiError, type Task } from './client'
@@ -14,7 +15,7 @@ interface RunnerIO {
   write(text: string): void
   create(job: ExecutionJob): Promise<string>
   task(id: string): Promise<Task>
-  save(job: ExecutionJob, mediaId: string): Promise<string>
+  save(job: ExecutionJob, mediaId: string): Promise<SavedMedia>
   sleep(ms: number): Promise<void>
 }
 export class PixaiRunner {
@@ -86,7 +87,13 @@ export class PixaiRunner {
       this.jobs.map((job) => (job.id === id ? { ...job, ...value, updatedAt: Date.now() } : job))
     )
   }
-  start(inputs: QueuedJob[], outputDir: string, limit: number, relocatePending = false): void {
+  start(
+    inputs: QueuedJob[],
+    outputDir: string,
+    limit: number,
+    relocatePending = false,
+    embedMetadata = false
+  ): void {
     if (this.running) throw new Error('이미 실행 중입니다.')
     if (this.fatal) throw new Error(this.error)
     if (
@@ -127,6 +134,15 @@ export class PixaiRunner {
             }
           : {}),
         state: 'queued',
+        embedMetadata,
+        ...(embedMetadata
+          ? {
+              metadataReferences: {
+                modelId: numericId(input.request.configuration.model.id),
+                loraModelIds: input.request.configuration.loras.map((v) => numericId(v.id))
+              }
+            }
+          : {}),
         outputDir,
         files: [],
         error: '',
@@ -285,13 +301,16 @@ export class PixaiRunner {
     }
     this.patch(job.id, { state: 'saving', mediaIds, error: '' })
     const files = [...job.files]
+    const warnings = [...(job.warnings ?? [])]
     for (let index = files.length; index < mediaIds.length; index++) {
       if (this.stopping) {
         this.patch(job.id, { state: 'save_failed' })
         return
       }
-      files.push(await this.io.save(job, mediaIds[index]))
-      this.patch(job.id, { files: [...files] })
+      const saved = await this.io.save(job, mediaIds[index])
+      files.push(saved.path)
+      if (saved.warning) warnings.push(`${index + 1}번째 이미지: ${saved.warning}`)
+      this.patch(job.id, { files: [...files], warnings: [...warnings] })
     }
     this.patch(job.id, { state: 'done', error: '' })
   }

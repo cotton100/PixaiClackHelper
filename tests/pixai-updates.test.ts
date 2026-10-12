@@ -55,7 +55,7 @@ function fixture() {
 describe('PixAIS release and compatibility contract', () => {
   it('tracks the actual database migration version and explicit data epoch', () => {
     expect(DATABASE_VERSION).toBe(migrations.length)
-    expect(DATA_EPOCH).toBe(7)
+    expect(DATA_EPOCH).toBe(8)
   })
   it('sorts versions numerically and prereleases before the matching stable version', () => {
     expect(compareVersions('0.1.10', '0.1.9')).toBe(1)
@@ -90,6 +90,9 @@ describe('PixAIS release and compatibility contract', () => {
     expect(() => assertCompatible(valid, 18)).not.toThrow()
     expect(() => assertCompatible(valid, 19)).toThrow()
     expect(() => assertCompatible({ ...valid, dataEpoch: 1 }, 18)).toThrow()
+    expect(() =>
+      assertCompatible({ ...valid, dataEpoch: 7, minReadableDataEpoch: 1 }, 19)
+    ).toThrow()
     expect(() =>
       assertCompatible({ ...valid, dataEpoch: 6, minReadableDataEpoch: 1 }, 19)
     ).toThrow()

@@ -8,17 +8,23 @@ const STEALTH_MAGIC = 'stealth_pngcomp'
 const LOCAL_PARAM_KEYS = ['nais3-params', 'nais2-params']
 
 /** PNG tEXt/zTXt/iTXt 청크에서 keyword→text 추출 */
-function parsePngTextChunks(buf: Buffer): Record<string, string> {
+export function parsePngTextChunks(buf: Buffer): Record<string, string> {
   const out: Record<string, string> = {}
   if (buf.length < 8 || !buf.subarray(0, 8).equals(PNG_SIG)) return out
   let off = 8
+  let textCount = 0
+  let textSize = 0
   while (off + 8 <= buf.length) {
     const len = buf.readUInt32BE(off)
     const type = buf.toString('ascii', off + 4, off + 8)
     const dataStart = off + 8
     const dataEnd = dataStart + len
-    if (dataEnd > buf.length) break
+    if (dataEnd + 4 > buf.length) break
     const data = buf.subarray(dataStart, dataEnd)
+    if (['tEXt', 'zTXt', 'iTXt'].includes(type) && ++textCount > 128)
+      throw new Error('메타데이터 항목 수 초과')
+    if (['tEXt', 'zTXt', 'iTXt'].includes(type) && len > 1024 * 1024)
+      throw new Error('메타데이터 용량 초과')
     try {
       if (type === 'tEXt') {
         const nul = data.indexOf(0)
@@ -28,7 +34,9 @@ function parsePngTextChunks(buf: Buffer): Record<string, string> {
         if (nul >= 0) {
           const key = data.toString('latin1', 0, nul)
           // data[nul+1] = compression method(0=zlib), 이후 압축 텍스트
-          out[key] = inflateSync(data.subarray(nul + 2)).toString('latin1')
+          out[key] = inflateSync(data.subarray(nul + 2), { maxOutputLength: 1024 * 1024 }).toString(
+            'latin1'
+          )
         }
       } else if (type === 'iTXt') {
         const nul = data.indexOf(0)
@@ -38,12 +46,16 @@ function parsePngTextChunks(buf: Buffer): Record<string, string> {
           // nul+3부터 lang\0translated\0text
           let p = nul + 3
           const langEnd = data.indexOf(0, p)
+          if (langEnd < 0) throw new Error('잘못된 iTXt')
           p = langEnd + 1
           const transEnd = data.indexOf(0, p)
+          if (transEnd < 0) throw new Error('잘못된 iTXt')
           p = transEnd + 1
           const textBuf = data.subarray(p)
           out[key] =
-            compFlag === 1 ? inflateSync(textBuf).toString('utf8') : textBuf.toString('utf8')
+            compFlag === 1
+              ? inflateSync(textBuf, { maxOutputLength: 1024 * 1024 }).toString('utf8')
+              : textBuf.toString('utf8')
         }
       } else if (type === 'IEND') {
         break
@@ -51,15 +63,17 @@ function parsePngTextChunks(buf: Buffer): Record<string, string> {
     } catch {
       // 개별 청크 파싱 실패는 무시
     }
+    textSize = Object.values(out).reduce((sum, text) => sum + Buffer.byteLength(text), 0)
+    if (textSize > 1024 * 1024) throw new Error('메타데이터 용량 초과')
     off = dataEnd + 4 // + CRC
   }
   return out
 }
 
 /** stealth 메타데이터 (알파 채널 LSB, column-major, magic + gzip JSON) */
-async function extractStealthComment(buf: Buffer): Promise<Record<string, unknown> | null> {
+export async function extractStealthComment(buf: Buffer): Promise<Record<string, unknown> | null> {
   try {
-    const { data, info } = await sharp(buf)
+    const { data, info } = await sharp(buf, { limitInputPixels: 40000000 })
       .ensureAlpha()
       .raw()
       .toBuffer({ resolveWithObject: true })
@@ -82,8 +96,12 @@ async function extractStealthComment(buf: Buffer): Promise<Record<string, unknow
       (bytes[off] << 24) | (bytes[off + 1] << 16) | (bytes[off + 2] << 8) | bytes[off + 3]
     off += 4
     const lengthBytes = Math.ceil(lengthBits / 8)
+    if (lengthBits <= 0 || lengthBytes > 1024 * 1024 || off + lengthBytes > bytes.length)
+      return null
     const compressed = Buffer.from(bytes.slice(off, off + lengthBytes))
-    const json = JSON.parse(gunzipSync(compressed).toString('utf8')) as Record<string, unknown>
+    const json = JSON.parse(
+      gunzipSync(compressed, { maxOutputLength: 1024 * 1024 }).toString('utf8')
+    ) as Record<string, unknown>
     if (typeof json.Comment === 'string') json.Comment = JSON.parse(json.Comment)
     return json
   } catch {

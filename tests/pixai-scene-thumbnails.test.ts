@@ -43,7 +43,7 @@ describe('scene result previews', () => {
     }))
     let journal: string | null = null
     const create = vi.fn(async () => '123')
-    const save = vi.fn(async (job, id) => `/output/${job.sourceSceneId}-${id}.png`)
+    const save = vi.fn(async (job, id) => ({ path: `/output/${job.sourceSceneId}-${id}.png` }))
     const io = {
       read: () => journal,
       write: (text: string) => {

@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 const channels = new Set([
+  'pixai:image-info',
+  'pixai:metadata-setting',
   'settings:get',
   'settings:set',
   'window:control',
