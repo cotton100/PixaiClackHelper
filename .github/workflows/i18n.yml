@@ -15,7 +15,7 @@ on:
       - 'vitest.db.config.ts'
       - '.github/workflows/i18n.yml'
   push:
-    branches: [main]
+    branches: [main, develop]
     paths:
       - 'src/**'
       - 'tests/**'
