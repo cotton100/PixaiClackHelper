@@ -1,3 +1,4 @@
+import { ComposeGroup } from './compose-group'
 import { RatioMark } from './ratio-mark'
 import { Children, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
@@ -417,13 +418,40 @@ export function StageChips({ stage }: { stage: 1 | 2 | 3 }): React.JSX.Element {
   )
 }
 export function ImageSummary({
+  composeGroup = false,
   scope,
   children,
   ...props
 }: React.ComponentProps<typeof ImagePicker> & {
+  composeGroup?: boolean
   scope?: string
   children?: ReactNode
 }): React.JSX.Element {
+  if (composeGroup) {
+    return (
+      <ComposeGroup
+        id="images"
+        title="이미지 설정"
+        summary={
+          <>
+            {props.value && (
+              <span className="px-compose-image-values">
+                <RatioMark ratio={props.value.aspectRatio} />
+                <span>
+                  {props.value.size} · {props.value.batchSize ?? '기본'}장
+                </span>
+                <span>{props.value.mode || '모델 기본값'}</span>
+              </span>
+            )}
+            {scope && <small>{scope}</small>}
+          </>
+        }
+      >
+        <ImagePicker {...props} />
+        {children}
+      </ComposeGroup>
+    )
+  }
   return (
     <details className="px-image-summary">
       <summary>

@@ -57,7 +57,9 @@ it('restores compose selections after unmount and restart and never writes empty
   const restarted = createPixaiStore(storage)
   await act(async () => root.render(h(PixaiApp, { store: restarted })))
   expect(saved).toBe(before)
-  expect(pane().querySelector('.px-selection-summary')?.textContent).toContain('기본 모델')
+  expect(pane().querySelector('[aria-label="프리셋·캐릭터 현재 선택"]')?.textContent).toContain(
+    '기본 모델'
+  )
   expect(restarted.getState().workspace.composeDraft).toMatchObject({
     characterId: 'c2',
     sceneIds: ['s2', 's1'],

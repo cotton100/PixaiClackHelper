@@ -1,3 +1,58 @@
+.px-compose-group {
+  border: 1px solid var(--px-line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.px-app .px-compose-group-toggle {
+  width: 100%;
+  justify-content: flex-start;
+  align-items: flex-start;
+  border: 0;
+  border-radius: 0;
+  padding: 10px;
+}
+.px-compose-group-toggle > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.px-compose-group-toggle[aria-expanded='true'] > svg {
+  transform: rotate(90deg);
+}
+.px-compose-group-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.px-compose-group-value {
+  color: var(--px-muted);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+}
+.px-compose-image-values {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.px-compose-image-values > span {
+  white-space: nowrap;
+}
+.px-compose-group-value small {
+  display: block;
+  font-size: inherit;
+}
+.px-compose-group-body {
+  padding: 10px;
+  border-top: 1px solid var(--px-line);
+}
+.px-compose-group-body > * + * {
+  margin-top: 10px;
+}
+.px-compose-group-body .px-generation-extra {
+  margin: 0;
+}
 .px-app {
   --px-bg: #171b1c;
   --px-surface: #202627;

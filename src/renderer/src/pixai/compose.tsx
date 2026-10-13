@@ -1,3 +1,4 @@
+import { ComposeGroup } from './compose-group'
 import { MaterialPreview } from './material-preview'
 import { RatioMark } from './ratio-mark'
 import { useState } from 'react'
@@ -33,7 +34,8 @@ export function Compose({
   const { library } = workspace
   const imageOptions = resolveImageOptions(draft.imageOptions, workspace.options)
   const [search, setSearch] = useState('')
-  const [materialTab, setMaterialTab] = useState('chunks')
+  const [chunkSearch, setChunkSearch] = useState('')
+  const [materialTab, setMaterialTab] = useState('presets')
   const [saveDefaults, setSaveDefaults] = useState(false)
   const [tab, setTab] = useState<'reservations' | 'recent' | 'favorites'>('reservations')
   const [notice, setNotice] = useState('')
@@ -175,18 +177,78 @@ export function Compose({
           <h2>조합 재료</h2>
         </header>
         <div className="px-scroll px-material-body">
-          <div className="px-selection-summary">
-            <button onClick={() => setMaterialTab('presets')}>
-              프리셋 <strong>{preset?.name || '선택해 주세요'}</strong>
-            </button>
-            <button onClick={() => setMaterialTab('characters')}>
-              캐릭터 <strong>{character?.name || '선택해 주세요'}</strong>
-            </button>
-            <button onClick={() => setMaterialTab('chunks')}>
-              청크 <strong>{draft.sceneIds.length}개 선택</strong>
-            </button>
-          </div>
+          <ComposeGroup
+            id="materials"
+            title="프리셋·캐릭터"
+            defaultOpen
+            summary={`프리셋: ${preset?.name || (draft.presetId ? '연결 끊김' : '미선택')} · 캐릭터: ${character?.name || (draft.characterId ? '연결 끊김' : '미선택')} · ${commonLabel}`}
+          >
+            <div className="px-subtabs" aria-label="조합 재료 종류">
+              {['presets', 'characters'].map((id, i) => (
+                <button
+                  key={id}
+                  aria-pressed={materialTab === id}
+                  onClick={() => {
+                    setMaterialTab(id)
+                    setSearch('')
+                  }}
+                >
+                  {['프리셋', '캐릭터'][i]}
+                </button>
+              ))}
+            </div>
+            <input
+              aria-label="프리셋·캐릭터 검색"
+              placeholder="현재 재료 검색"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+            {materialTab === 'presets' && (
+              <div aria-label="프리셋 선택" className="px-material-list">
+                {library.presets
+                  .filter((item) => item.name.toLowerCase().includes(search.toLowerCase()))
+                  .map((item) => (
+                    <button
+                      key={item.id}
+                      className="px-material-pick"
+                      aria-label={item.name}
+                      aria-pressed={draft.presetId === item.id}
+                      onClick={() => onChange({ ...draft, presetId: item.id })}
+                    >
+                      <strong>{item.name}</strong>
+                      <MaterialPreview item={item} library={library} />
+                    </button>
+                  ))}
+              </div>
+            )}
+            {materialTab === 'characters' && (
+              <ChunkList
+                chunks={library.characters}
+                folders={library.characterFolders ?? []}
+                label="캐릭터"
+                search={search}
+                render={(item) => (
+                  <button
+                    className="px-material-pick"
+                    aria-label={item.name}
+                    aria-pressed={draft.characterId === item.id}
+                    onClick={() =>
+                      onChange({
+                        ...draft,
+                        characterId: item.id,
+                        presetId: item.defaultPresetId || draft.presetId
+                      })
+                    }
+                  >
+                    <strong>{item.name}</strong>
+                    <MaterialPreview item={item} library={library} />
+                  </button>
+                )}
+              />
+            )}
+          </ComposeGroup>
           <ImageSummary
+            composeGroup
             value={imageOptions}
             allowInherit={false}
             scope={
@@ -243,70 +305,22 @@ export function Compose({
             <small>기본값 저장을 선택한 뒤 변경한 값부터 적용됩니다. 기존 예약은 유지됩니다.</small>
           </ImageSummary>
           <GenerationSettings store={store} />
-          <div className="px-subtabs" aria-label="조합 재료 종류">
-            {['presets', 'characters', 'chunks'].map((id, i) => (
-              <button
-                key={id}
-                aria-pressed={materialTab === id}
-                onClick={() => {
-                  setMaterialTab(id)
-                  setSearch('')
-                }}
-              >
-                {['프리셋', '캐릭터', '청크'][i]}
-              </button>
-            ))}
-          </div>
-          <input
-            aria-label="조합 청크 검색"
-            placeholder="현재 재료 검색"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
-          {materialTab === 'presets' && (
-            <div aria-label="프리셋 선택" className="px-material-list">
-              {library.presets
-                .filter((item) => item.name.toLowerCase().includes(search.toLowerCase()))
-                .map((item) => (
-                  <button
-                    key={item.id}
-                    className="px-material-pick"
-                    aria-label={item.name}
-                    aria-pressed={draft.presetId === item.id}
-                    onClick={() => onChange({ ...draft, presetId: item.id })}
-                  >
-                    <strong>{item.name}</strong>
-                    <MaterialPreview item={item} library={library} />
-                  </button>
-                ))}
-            </div>
-          )}
-          {materialTab === 'characters' && (
-            <ChunkList
-              chunks={library.characters}
-              folders={library.characterFolders ?? []}
-              label="캐릭터"
-              search={search}
-              render={(item) => (
-                <button
-                  className="px-material-pick"
-                  aria-label={item.name}
-                  aria-pressed={draft.characterId === item.id}
-                  onClick={() =>
-                    onChange({
-                      ...draft,
-                      characterId: item.id,
-                      presetId: item.defaultPresetId || draft.presetId
-                    })
-                  }
-                >
-                  <strong>{item.name}</strong>
-                  <MaterialPreview item={item} library={library} />
-                </button>
-              )}
+          <ComposeGroup
+            id="chunks"
+            title="청크 선택"
+            defaultOpen
+            summary={
+              draft.sceneIds.length
+                ? `${draft.sceneIds.length}개 · ${chunks.map((chunk) => chunk?.name ?? '연결 끊김').join(' → ')}`
+                : '선택한 청크 없음'
+            }
+          >
+            <input
+              aria-label="조합 청크 검색"
+              placeholder="청크 검색"
+              value={chunkSearch}
+              onChange={(event) => setChunkSearch(event.target.value)}
             />
-          )}
-          <div hidden={materialTab !== 'chunks'}>
             <div className="px-toolbar">
               <span>청크 {draft.sceneIds.length}개 선택</span>
               <button
@@ -336,11 +350,15 @@ export function Compose({
                 const items = library.scenes.filter(
                   (chunk) =>
                     (chunk.folderId ?? '') === folder.id &&
-                    chunk.name.toLowerCase().includes(search.toLowerCase())
+                    chunk.name.toLowerCase().includes(chunkSearch.toLowerCase())
                 )
                 if (!items.length) return null
                 return (
-                  <details key={folder.id} open={search ? true : undefined} className="px-folder">
+                  <details
+                    key={folder.id}
+                    open={chunkSearch ? true : undefined}
+                    className="px-folder"
+                  >
                     <summary>
                       {folder.name}{' '}
                       <small>
@@ -374,7 +392,7 @@ export function Compose({
                 </p>
               )}
             </div>
-          </div>
+          </ComposeGroup>
         </div>
       </section>
       <section className="px-pane" aria-label="순서·미리보기">
