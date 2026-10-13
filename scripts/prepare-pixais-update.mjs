@@ -21,7 +21,8 @@ export async function prepareUpdate(root) {
     source.match(/export const MIN_READABLE_DATA_EPOCH = (\d+)/)?.[1] ?? dataEpoch
   )
   if (!dataEpoch || !databaseVersion) throw new Error('Missing compatibility metadata')
-  const file = `PixaiClackHelper-${pkg.version}-setup.exe`
+  const channel = pkg.version.includes('-') ? 'beta' : 'stable'
+  const file = `PixaiClackHelper-${channel === 'beta' ? 'Beta-' : ''}${pkg.version}-setup.exe`
   const path = join(root, 'dist', file)
   const size = (await stat(path)).size
   if (!size || size > 1024 ** 3) throw new Error('Invalid installer size')
@@ -33,6 +34,7 @@ export async function prepareUpdate(root) {
     JSON.stringify(
       {
         format: 1,
+        channel,
         version: pkg.version,
         dataEpoch,
         minReadableDataEpoch,

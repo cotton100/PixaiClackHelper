@@ -1,3 +1,4 @@
+import { channelForVersion, installerName, type UpdateChannel } from './channels'
 export const UPDATE_REPO = 'cotton100/PixaiClackHelper'
 // Increment when a workspace/runner format can no longer be read by older PixAIS releases.
 export const DATA_EPOCH = 8
@@ -15,6 +16,7 @@ export interface AppRelease {
   available: boolean
 }
 export interface UpdateManifest {
+  channel?: UpdateChannel
   format: 1
   version: string
   dataEpoch: number
@@ -25,6 +27,8 @@ export interface UpdateManifest {
   sha512: string
 }
 export interface UpdateStatus {
+  installedChannel?: UpdateChannel
+  channel?: UpdateChannel
   currentVersion: string
   supported: boolean
   phase: 'idle' | 'checking' | 'downloading' | 'ready' | 'installing' | 'error'
@@ -69,7 +73,10 @@ export function parseManifest(value: unknown, version: string): UpdateManifest {
         m.minReadableDataEpoch > m.dataEpoch)) ||
     !Number.isInteger(m.databaseVersion) ||
     m.databaseVersion < 1 ||
-    m.file !== `PixaiClackHelper-${version}-setup.exe` ||
+    m.file !== installerName(version) ||
+    (channelForVersion(version) === 'beta'
+      ? m.channel !== 'beta'
+      : m.channel !== undefined && m.channel !== 'stable') ||
     !Number.isSafeInteger(m.size) ||
     m.size < 1 ||
     m.size > 1024 ** 3 ||

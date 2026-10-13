@@ -24,12 +24,16 @@ beforeEach(async () => {
       prerelease: version.includes('-')
     }))
   }
-  invoke = vi.fn(async (channel: string, req: { version?: string }) => {
-    if (channel === 'pixai:update-download')
-      status = { ...status, phase: 'ready', selectedVersion: req.version!, percent: 100 }
-    if (channel === 'pixai:update-install') status = { ...status, phase: 'installing' }
-    return structuredClone(status)
-  })
+  invoke = vi.fn(
+    async (channel: string, req: { version?: string; channel?: 'stable' | 'beta' }) => {
+      if (channel === 'pixai:update-channel')
+        status = { ...status, channel: req.channel, phase: 'idle', selectedVersion: '' }
+      if (channel === 'pixai:update-download')
+        status = { ...status, phase: 'ready', selectedVersion: req.version!, percent: 100 }
+      if (channel === 'pixai:update-install') status = { ...status, phase: 'installing' }
+      return structuredClone(status)
+    }
+  )
   vi.stubGlobal('nais', { runtime: 'electron', invoke })
   container = document.createElement('div')
   document.body.append(container)
@@ -48,7 +52,7 @@ it('hides prereleases by default and shows explicit downgrade information', asyn
   expect(container.textContent).not.toContain('0.1.3-beta.1')
   await act(async () => button('0.1.1').click())
   expect(container.textContent).toContain('이전 버전으로 돌아갑니다')
-  await act(async () => container.querySelector<HTMLInputElement>('input[type=checkbox]')!.click())
+  await act(async () => button('개발판 (Beta)').click())
   expect(container.textContent).toContain('0.1.3-beta.1')
 })
 it('offers one-click update without a separate selection or checkbox', async () => {
@@ -153,4 +157,34 @@ it('allows checking after the initial status request fails', async () => {
   expect(invoke).toHaveBeenCalledWith('pixai:update-check', {})
   expect(button('최신 버전으로 업데이트').disabled).toBe(false)
   expect(container.textContent).not.toContain('업데이트 상태를 읽지 못했습니다')
+})
+
+it('opens the other edition separately without updating or installing over the current app', async () => {
+  await act(async () => button('개발판 (Beta)').click())
+  expect(invoke).toHaveBeenCalledWith('pixai:update-channel', { channel: 'beta' })
+  expect(container.textContent).toContain('기존 앱을 교체하지 않으며')
+  invoke.mockClear()
+  await act(async () => button('개발판 별도 설치 파일 열기').click())
+  expect(invoke).toHaveBeenCalledWith('pixai:update-open-separate', { version: '0.1.3-beta.1' })
+  expect(
+    invoke.mock.calls.some(([name]) =>
+      ['pixai:update-latest', 'pixai:update-download', 'pixai:update-install'].includes(name)
+    )
+  ).toBe(false)
+})
+it('updates the installed beta edition and retains its channel after remounting', async () => {
+  status = { ...status, currentVersion: '0.1.3-beta.0', installedChannel: 'beta', channel: 'beta' }
+  await act(async () => button('업데이트 확인').click())
+  expect(container.textContent).toContain('현재 개발판 0.1.3-beta.0')
+  expect(button('최신 버전으로 업데이트').disabled).toBe(false)
+  await act(async () => button('최신 버전으로 업데이트').click())
+  expect(invoke).toHaveBeenCalledWith('pixai:update-latest', {})
+  await act(async () => {
+    root.unmount()
+    root = createRoot(container)
+    root.render(createElement(AppUpdates))
+  })
+  expect(button('개발판 (Beta)').getAttribute('aria-pressed')).toBe('true')
+  await act(async () => button('정식판').click())
+  expect(button('정식판 별도 설치 파일 열기')).toBeDefined()
 })

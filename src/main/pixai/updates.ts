@@ -1,4 +1,10 @@
 import {
+  channelForVersion,
+  channelLabel,
+  installerName,
+  type UpdateChannel
+} from '../../shared/pixai/channels'
+import {
   UPDATE_REPO,
   VERSION,
   compareVersions,
@@ -25,6 +31,9 @@ export interface UpdateEngine {
 }
 interface UpdateIO {
   version: string
+  channel?: UpdateChannel
+  saveChannel?(channel: UpdateChannel): void
+  openExternal?(url: string): Promise<void>
   supported: boolean
   json(url: string): Promise<unknown>
   engine(tag: string, progress: (percent: number) => void, error: () => void): UpdateEngine
@@ -78,6 +87,7 @@ export function parseReleases(raw: unknown): AppRelease[] {
       )
         return []
       const version = item.tag_name.slice(1)
+      if (item.prerelease === true && channelForVersion(version) === 'stable') return []
       const names = Array.isArray(item.assets)
         ? item.assets.map((asset: { name?: string }) => asset?.name)
         : []
@@ -88,11 +98,9 @@ export function parseReleases(raw: unknown): AppRelease[] {
           date: typeof item.published_at === 'string' ? item.published_at : '',
           notes: typeof item.body === 'string' ? item.body.slice(0, 20000) : '',
           prerelease: item.prerelease === true || version.includes('-'),
-          available: [
-            'pixais-update.json',
-            'latest.yml',
-            `PixaiClackHelper-${version}-setup.exe`
-          ].every((name) => names.includes(name))
+          available: ['pixais-update.json', 'latest.yml', installerName(version)].every((name) =>
+            names.includes(name)
+          )
         }
       ]
     })
@@ -106,6 +114,8 @@ export class PixaisUpdates {
   constructor(private io: UpdateIO) {
     this.state = {
       currentVersion: io.version,
+      installedChannel: channelForVersion(io.version),
+      channel: io.channel ?? channelForVersion(io.version),
       supported: io.supported,
       phase: 'idle',
       releases: [],
@@ -114,6 +124,52 @@ export class PixaisUpdates {
       message: '',
       backupPath: ''
     }
+  }
+  selectChannel(channel: unknown): UpdateStatus {
+    this.idle()
+    if (channel !== 'stable' && channel !== 'beta')
+      throw new Error('업데이트 종류를 확인해 주세요.')
+    this.io.saveChannel?.(channel)
+    this.engine = null
+    this.manifest = null
+    this.state = {
+      ...this.state,
+      channel,
+      phase: 'idle',
+      selectedVersion: '',
+      percent: 0,
+      message: '',
+      backupPath: ''
+    }
+    return this.status()
+  }
+  async openSeparate(version: string): Promise<UpdateStatus> {
+    this.idle()
+    if (!this.io.supported || !this.io.openExternal)
+      throw new Error('Windows 설치 앱에서 사용할 수 있습니다.')
+    if (typeof version !== 'string' || !VERSION.test(version))
+      throw new Error('설치할 버전을 확인해 주세요.')
+    const release = this.state.releases.find((item) => item.version === version)
+    if (
+      !release?.available ||
+      channelForVersion(version) !== this.state.channel ||
+      this.state.channel === this.state.installedChannel
+    )
+      throw new Error('별도로 설치할 다른 종류의 앱을 선택해 주세요.')
+    this.state.phase = 'checking'
+    try {
+      const manifest = parseManifest(
+        await this.io.json(releaseBase(release.tag) + 'pixais-update.json'),
+        version
+      )
+      await this.io.openExternal(releaseBase(release.tag) + manifest.file)
+      this.state.phase = 'idle'
+      this.state.message =
+        '브라우저에서 별도 설치 파일을 열었습니다. 다운로드한 파일을 실행해 설치하세요. 현재 앱과 자료는 그대로 유지됩니다.'
+    } catch {
+      this.fail(new Error('별도 설치 파일 정보를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.'))
+    }
+    return this.status()
   }
   status(): UpdateStatus {
     return structuredClone(this.state)
@@ -148,7 +204,14 @@ export class PixaisUpdates {
   async download(version: string): Promise<UpdateStatus> {
     this.idle()
     if (!this.io.supported) throw new Error('Windows 설치본에서 사용할 수 있습니다.')
+    if (typeof version !== 'string' || !VERSION.test(version))
+      throw new Error('설치할 버전을 확인해 주세요.')
     const release = this.state.releases.find((item) => item.version === version)
+    if (
+      channelForVersion(version) !== this.state.installedChannel ||
+      this.state.channel !== this.state.installedChannel
+    )
+      throw new Error('다른 종류의 앱은 별도 설치를 이용해 주세요.')
     if (!release?.available || version === this.io.version)
       throw new Error('설치할 수 있는 다른 출시 버전을 선택해 주세요.')
     this.engine = null
@@ -196,6 +259,8 @@ export class PixaisUpdates {
   async updateLatest(): Promise<UpdateStatus> {
     this.idle()
     if (!this.io.supported) throw new Error('Windows 설치본에서 사용할 수 있습니다.')
+    if (this.state.channel !== this.state.installedChannel)
+      throw new Error('다른 종류의 앱은 별도 설치를 이용해 주세요.')
     if (!this.io.canInstall())
       throw new Error('진행 중이거나 저장하지 못한 생성 작업을 마친 뒤 업데이트해 주세요.')
     // A click on this action authorizes checking, downloading and restarting.
@@ -208,12 +273,12 @@ export class PixaisUpdates {
     if (checked.phase === 'error' || !checked.releases.length) return checked
     const latest = checked.releases.find(
       (release) =>
-        !release.prerelease &&
+        (release.prerelease ? 'beta' : 'stable') === this.state.channel &&
         release.available &&
         compareVersions(release.version, this.io.version) > 0
     )
     if (!latest) {
-      this.state.message = '현재 설치할 수 있는 최신 정식 버전입니다.'
+      this.state.message = `현재 설치할 수 있는 최신 ${channelLabel(this.state.channel ?? 'stable')} 버전입니다.`
       return this.status()
     }
     const downloaded = await this.download(latest.version)

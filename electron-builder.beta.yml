@@ -1,0 +1,13 @@
+extends: ./electron-builder.yml
+appId: com.cotton100.pixais.beta
+productName: PixaiClackHelper Beta
+executableName: PixAIS-Beta
+extraMetadata:
+  name: pixais-beta
+win:
+  executableName: PixAIS-Beta
+nsis:
+  artifactName: PixaiClackHelper-Beta-${version}-setup.${ext}
+  shortcutName: PixaiClackHelper Beta
+  uninstallDisplayName: PixaiClackHelper Beta
+  allowToChangeInstallationDirectory: false

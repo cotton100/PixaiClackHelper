@@ -20,6 +20,7 @@ import { usePixaiStore, type PixaiStore } from './store'
 import './pixai.css'
 import { ExecutionQueue } from './execution'
 import { ImageInformation } from './image-info'
+import { appIdentity, channelForVersion } from '@shared/pixai/channels'
 
 export default function PixaiApp({
   store = usePixaiStore
@@ -28,12 +29,30 @@ export default function PixaiApp({
 }): React.JSX.Element {
   const { workspace, ready, busy, draftSaving, error } = store()
   const [tab, setTab] = useState('compose')
+  const [productName, setProductName] = useState('PixaiClackHelper')
   const draft = workspace.composeDraft ?? emptyDraft()
   const [sceneEditId, setSceneEditId] = useState('')
   const [epoch, setEpoch] = useState(0)
   useEffect(() => {
     void store.getState().hydrate()
   }, [store])
+  useEffect(() => {
+    if (!window.nais || window.nais.runtime === 'browser') return
+    let live = true
+    void window.nais
+      .invoke('pixai:update-status', {})
+      .then((status) => {
+        if (live && typeof status?.currentVersion === 'string') {
+          const name = appIdentity(channelForVersion(status.currentVersion)).productName
+          setProductName(name)
+          document.title = name
+        }
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [])
   function setDraft(next: ComposeDraft): void {
     void store
       .getState()
@@ -61,7 +80,7 @@ export default function PixaiApp({
   return (
     <div className="px-app">
       <header className="px-titlebar">
-        <strong>PixaiClackHelper</strong>
+        <strong>{productName}</strong>
 
         <nav className="px-nav" aria-label="PixaiClackHelper 메뉴">
           {tabs.map(({ id, label, Icon }) => (
