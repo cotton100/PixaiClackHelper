@@ -1,3 +1,4 @@
+import { channelForVersion, channelLabel, type UpdateChannel } from '@shared/pixai/channels'
 import { useEffect, useState } from 'react'
 import { Download, RefreshCw } from 'lucide-react'
 import { compareVersions, type UpdateStatus } from '@shared/pixai/updates'
@@ -6,7 +7,6 @@ export function AppUpdates(): React.JSX.Element {
   const browser = !window.nais || window.nais.runtime === 'browser'
   const [state, setState] = useState<UpdateStatus | null>(null)
   const [selected, setSelected] = useState('')
-  const [preview, setPreview] = useState(false)
   const [confirmed, setConfirmed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -46,26 +46,64 @@ export function AppUpdates(): React.JSX.Element {
   }
   const locked = busy || ['checking', 'downloading', 'installing'].includes(state?.phase ?? '')
   const checked = !!state?.releases.length && state.phase !== 'error' && !error
+  const installedChannel = state?.installedChannel ?? channelForVersion(state?.currentVersion ?? '')
+  const channel = state?.channel ?? installedChannel
+  const separate = channel !== installedChannel
+  const label = channelLabel(channel)
+  const visible =
+    state?.releases.filter((release) => (release.prerelease ? 'beta' : 'stable') === channel) ?? []
+  const separateRelease = visible.find((release) => release.available)
   const newerReleases =
     state?.releases.filter(
-      (item) => !item.prerelease && compareVersions(item.version, state.currentVersion) > 0
+      (item) =>
+        (item.prerelease ? 'beta' : 'stable') === channel &&
+        compareVersions(item.version, state.currentVersion) > 0
     ) ?? []
   const canUpdate = checked && newerReleases.some((item) => item.available)
-  const visible = state?.releases.filter((release) => preview || !release.prerelease) ?? []
   const release = visible.find((item) => item.version === selected)
-  const older = release && state && compareVersions(release.version, state.currentVersion) < 0
+  const older =
+    !separate && release && state && compareVersions(release.version, state.currentVersion) < 0
   const ready = state?.phase === 'ready' && selected === state.selectedVersion
   return (
     <section className="px-pane px-updates">
       <header>
         <h2>앱 업데이트 · 버전 선택</h2>
-        <span>{state ? `현재 ${state.currentVersion}` : 'PixaiClackHelper'}</span>
+        <span>
+          {state
+            ? `현재 ${channelLabel(installedChannel)} ${state.currentVersion}`
+            : 'PixaiClackHelper'}
+        </span>
       </header>
-      <p>업데이트를 확인한 뒤 새 정식 버전이 있으면 자료를 백업하고 설치·재시작합니다.</p>
+      <p>같은 종류의 앱은 백업 후 업데이트합니다. 다른 종류는 별도 앱으로 설치합니다.</p>
       {browser ? (
         <p>Windows 설치 앱에서 사용할 수 있습니다.</p>
       ) : (
         <>
+          <div className="px-toolbar" aria-label="업데이트 종류">
+            {(['stable', 'beta'] as UpdateChannel[]).map((value) => (
+              <button
+                key={value}
+                aria-pressed={channel === value}
+                disabled={locked || !state}
+                onClick={() => {
+                  setSelected('')
+                  void run(() => window.nais.invoke('pixai:update-channel', { channel: value }))
+                }}
+              >
+                {value === 'stable' ? '정식판' : '개발판 (Beta)'}
+              </button>
+            ))}
+          </div>
+          {separate && (
+            <p className="px-hint">
+              {label}은 별도 앱입니다. 기존 앱을 교체하지 않으며 프리셋·대기열·API 키를 자동으로
+              복사하지 않습니다. 설치 시 기본 폴더를 사용하세요. 필요한 재료는 설정 백업으로 가져올
+              수 있습니다.
+            </p>
+          )}
+          {separate && checked && !separateRelease && (
+            <p role="status">아직 별도로 설치할 수 있는 {label}이 게시되지 않았습니다.</p>
+          )}
           <div className="px-toolbar">
             <button
               disabled={locked || state?.phase === 'ready'}
@@ -76,41 +114,43 @@ export function AppUpdates(): React.JSX.Element {
             </button>
             <button
               className="px-primary"
-              disabled={locked || !state?.supported || !canUpdate}
-              onClick={() => void run(() => window.nais.invoke('pixai:update-latest', {}))}
+              disabled={
+                locked || !state?.supported || !(separate ? checked && separateRelease : canUpdate)
+              }
+              onClick={() =>
+                void run(() =>
+                  separate && separateRelease
+                    ? window.nais.invoke('pixai:update-open-separate', {
+                        version: separateRelease.version
+                      })
+                    : window.nais.invoke('pixai:update-latest', {})
+                )
+              }
             >
               <Download size={16} />
-              최신 버전으로 업데이트
+              {separate ? `${label} 별도 설치 파일 열기` : '최신 버전으로 업데이트'}
             </button>
           </div>
-          {!locked && checked && newerReleases.length === 0 && (
-            <p role="status">현재 버전보다 새로운 정식 버전이 없습니다.</p>
+          {!locked && checked && !separate && newerReleases.length === 0 && (
+            <p role="status">
+              현재 버전보다 새로운 {channel === 'stable' ? '정식' : '개발판'} 버전이 없습니다.
+            </p>
           )}
-          {!locked && checked && newerReleases.length > 0 && !canUpdate && (
-            <p role="status">새 정식 버전의 앱 내 설치 파일이 아직 제공되지 않았습니다.</p>
+          {!locked && checked && !separate && newerReleases.length > 0 && !canUpdate && (
+            <p role="status">
+              새 {channel === 'stable' ? '정식' : '개발판'} 버전의 앱 내 설치 파일이 아직 제공되지
+              않았습니다.
+            </p>
           )}
           <small>
-            실행 중인 생성·저장을 먼저 마쳐 주세요. 설치 중 앱이 종료되며 Windows 권한 확인이 나올
-            수 있습니다.
+            {separate
+              ? '다운로드한 설치 파일은 직접 실행해 주세요. 현재 앱은 계속 사용할 수 있습니다.'
+              : '실행 중인 생성·저장을 먼저 마쳐 주세요. 설치 중 앱이 종료되며 Windows 권한 확인이 나올 수 있습니다.'}
           </small>
           <details>
             <summary>다른 버전 선택 · 변경 내용</summary>
-            <div className="px-toolbar">
-              <label className="px-check">
-                <input
-                  type="checkbox"
-                  checked={preview}
-                  disabled={locked}
-                  onChange={(e) => {
-                    setPreview(e.target.checked)
-                    setSelected('')
-                    setConfirmed(false)
-                  }}
-                />
-                시험판도 표시
-              </label>
-            </div>
-            <p className="px-hint">최근 100개 공개 릴리스 · 기본은 정식 버전만 표시합니다.</p>
+            <p className="px-hint">최근 100개 공개 릴리스 중 {label}만 표시합니다.</p>
+            {checked && !visible.length && <p>아직 게시된 {label}이 없습니다.</p>}
             <div className="px-release-list" aria-label="출시 버전 목록">
               {visible.map((item) => (
                 <button
@@ -125,8 +165,8 @@ export function AppUpdates(): React.JSX.Element {
                 >
                   <strong>
                     {item.version}
-                    {item.version === state?.currentVersion ? ' · 사용 중' : ''}
-                    {item.prerelease ? ' · 시험판' : ''}
+                    {!separate && item.version === state?.currentVersion ? ' · 사용 중' : ''}
+                    {item.prerelease ? ' · 개발판' : ''}
                   </strong>
                   <small>
                     {item.date.slice(0, 10)}
@@ -154,17 +194,20 @@ export function AppUpdates(): React.JSX.Element {
                     locked ||
                     !state?.supported ||
                     !release.available ||
-                    release.version === state.currentVersion ||
+                    (!separate && release.version === state.currentVersion) ||
                     ready
                   }
                   onClick={() =>
                     void run(() =>
-                      window.nais.invoke('pixai:update-download', { version: release.version })
+                      window.nais.invoke(
+                        separate ? 'pixai:update-open-separate' : 'pixai:update-download',
+                        { version: release.version }
+                      )
                     )
                   }
                 >
                   <Download size={16} />
-                  선택한 버전 받기
+                  {separate ? '선택한 버전 별도 설치 파일 열기' : '선택한 버전 받기'}
                 </button>
               </div>
             )}

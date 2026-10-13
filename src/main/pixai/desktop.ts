@@ -14,14 +14,17 @@ import { readModelLink } from './model-link'
 import { readImageInfo, embedGenerationInfo } from './image-info'
 import { PixaisUpdates, publicUpdateJson, canInstallUpdate } from './updates'
 import { makeUpdateEngine } from './update-engine'
+import { appIdentity, channelForVersion } from '../../shared/pixai/channels'
 import { backupBeforeUpdate, preserveSettingsOnVersionChange } from './settings-backup'
 import type { PixaiInvokeMap, ConnectionStatus, ExecutionJob } from '../../shared/pixai/execution'
 
 const smoke = process.argv.includes('--pixais-smoke-test')
-app.setName('PixAIS')
+const installedChannel = channelForVersion(app.getVersion())
+const identity = appIdentity(installedChannel)
+app.setName(identity.name)
 app.setPath(
   'userData',
-  smoke ? mkdtempSync(join(tmpdir(), 'pixais-smoke-')) : join(app.getPath('appData'), 'PixAIS')
+  smoke ? mkdtempSync(join(tmpdir(), 'pixais-smoke-')) : join(app.getPath('appData'), identity.name)
 )
 const ownsInstance = app.requestSingleInstanceLock()
 if (!ownsInstance) app.quit()
@@ -37,7 +40,7 @@ if (ownsInstance)
   app
     .whenReady()
     .then(async () => {
-      app.setAppUserModelId('com.cotton100.pixais')
+      app.setAppUserModelId(identity.appId)
       try {
         initDb()
         preserveSettingsOnVersionChange()
@@ -90,6 +93,14 @@ if (ownsInstance)
       let readingImage = false
       const updates = new PixaisUpdates({
         version: app.getVersion(),
+        channel:
+          getSetting('pixais.updateChannel') === 'beta'
+            ? 'beta'
+            : getSetting('pixais.updateChannel') === 'stable'
+              ? 'stable'
+              : installedChannel,
+        saveChannel: (channel) => setSetting('pixais.updateChannel', channel),
+        openExternal: (url) => shell.openExternal(url),
         supported: app.isPackaged && process.platform === 'win32' && process.arch === 'x64',
         json: publicUpdateJson,
         engine: makeUpdateEngine,
@@ -152,6 +163,8 @@ if (ownsInstance)
       })
       handle('pixai:scene-thumbnails', (req) => thumbnails.status(req?.revision))
       handle('pixai:update-status', () => updates.status())
+      handle('pixai:update-channel', (req) => updates.selectChannel(req?.channel))
+      handle('pixai:update-open-separate', (req) => updates.openSeparate(req?.version))
       handle('pixai:update-check', () => updates.check())
       handle('pixai:update-latest', () => updates.updateLatest())
       handle('pixai:update-download', (req) => updates.download(req?.version))
@@ -242,6 +255,7 @@ if (ownsInstance)
         })
       }
       win = new BrowserWindow({
+        title: identity.productName,
         width: 1440,
         height: 940,
         minWidth: 780,
@@ -301,7 +315,7 @@ if (ownsInstance)
           const settings = Array.from(document.querySelectorAll('.px-nav button')).find(button => button.textContent === '설정');
           settings?.click();
           await new Promise(resolve => setTimeout(resolve, 100));
-          return document.title === 'PixaiClackHelper' && !!document.querySelector('.px-content') &&
+          return document.title === ${JSON.stringify(identity.productName)} && !!document.querySelector('.px-content') &&
             !!document.querySelector('input[type="password"]') &&
             !connection.connected && status.jobs.length === 0 && forbidden &&
             updates.currentVersion === ${JSON.stringify(app.getVersion())} && updates.phase === 'idle' &&
@@ -314,7 +328,14 @@ if (ownsInstance)
           safeStorage.isEncryptionAvailable() &&
           safeStorage.decryptString(safeStorage.encryptString('pixais-smoke-dummy')) ===
             'pixais-smoke-dummy'
-        const result = { renderer: ok, db: dbOk, encryption, packaged: app.isPackaged }
+        const result = {
+          renderer: ok,
+          db: dbOk,
+          encryption,
+          packaged: app.isPackaged,
+          channel: installedChannel,
+          identity: identity.name
+        }
         writeFileSync(
           join(app.getPath('userData'), 'settings.png'),
           (await win.webContents.capturePage()).toPNG()

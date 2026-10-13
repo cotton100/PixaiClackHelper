@@ -1,6 +1,6 @@
 {
   "name": "pixais",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "description": "PixaiClackHelper - PixAI generation and queue helper",
   "main": "./out/main/index.js",
   "author": "sunanakgo",
@@ -27,8 +27,8 @@
     "dev:web": "vite --config vite.web.config.ts --open",
     "build": "pnpm run typecheck && electron-vite build",
     "postinstall": "electron-builder install-app-deps",
-    "build:unpack": "pnpm run build && electron-builder --dir",
-    "build:win": "pnpm run build && electron-builder --win --publish never && node scripts/prepare-pixais-update.mjs",
+    "build:unpack": "pnpm run build && node scripts/build-pixais-win.mjs --dir",
+    "build:win": "pnpm run build && node scripts/build-pixais-win.mjs && node scripts/prepare-pixais-update.mjs",
     "build:mac": "pnpm run build && electron-builder --mac",
     "build:linux": "electron-vite build && electron-builder --linux",
     "test": "vitest run && pnpm run test:db",

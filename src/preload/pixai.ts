@@ -8,6 +8,8 @@ const channels = new Set([
   'pixai:status',
   'pixai:scene-thumbnails',
   'pixai:update-status',
+  'pixai:update-channel',
+  'pixai:update-open-separate',
   'pixai:update-check',
   'pixai:update-latest',
   'pixai:update-download',
