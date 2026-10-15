@@ -8,6 +8,7 @@ const metadata = (version: string) => ({
   format: 1,
   version,
   channel: channelForVersion(version),
+  installation: 'shared',
   dataEpoch: DATA_EPOCH,
   minReadableDataEpoch: 1,
   databaseVersion: DATABASE_VERSION,
@@ -32,7 +33,6 @@ function fixture(version = '0.1.12', channel?: UpdateChannel) {
     channel,
     supported: true,
     saveChannel: vi.fn(),
-    openExternal: vi.fn(async () => {}),
     json: vi.fn(async (url: string): Promise<unknown> =>
       url.includes('api.github.com') ? releases : metadata(url.split('/').at(-2)!.slice(1))
     ),
@@ -68,24 +68,48 @@ it.each(['0.1.12', '0.1.13-beta.1'])(
     )
     expect(engine.install).toHaveBeenCalledWith(true)
     expect(io.backup).toHaveBeenCalledOnce()
-    expect(io.openExternal).not.toHaveBeenCalled()
   }
 )
-it('opens a fixed separate installer URL without replacing the app, migrating or backing up this workspace', async () => {
+it('selects beta without installation, then updates the same app with backup only on the explicit update action', async () => {
   const { updates, io, engine } = fixture()
   await updates.check()
   updates.selectChannel('beta')
-  await expect(updates.download('0.1.15-beta.2')).rejects.toThrow('별도 설치')
-  await expect(updates.updateLatest()).rejects.toThrow('별도 설치')
-  await updates.openSeparate('0.1.15-beta.2')
-  expect(io.openExternal).toHaveBeenCalledExactlyOnceWith(
-    'https://github.com/cotton100/PixaiClackHelper/releases/download/v0.1.15-beta.2/PixaiClackHelper-Beta-0.1.15-beta.2-setup.exe'
-  )
-  expect(engine.install).not.toHaveBeenCalled()
-  expect(io.databaseVersion()).toBe(DATABASE_VERSION)
-  expect(io.backup).not.toHaveBeenCalled()
+  expect(io.saveChannel).toHaveBeenCalledExactlyOnceWith('beta')
   expect(io.engine).not.toHaveBeenCalled()
+  expect(engine.install).not.toHaveBeenCalled()
+  expect(io.backup).not.toHaveBeenCalled()
+  expect((await updates.updateLatest()).phase).toBe('installing')
+  expect(engine.download).toHaveBeenCalledWith(metadata('0.1.15-beta.2'))
+  expect(io.backup).toHaveBeenCalledOnce()
+  expect(io.backup.mock.invocationCallOrder[0]).toBeLessThan(
+    engine.install.mock.invocationCallOrder[0]
+  )
+  expect(engine.install).toHaveBeenCalledWith(true)
 })
+it('returns from beta to an older compatible stable only after an explicit update action', async () => {
+  const { updates, io, engine } = fixture('0.1.15-beta.2')
+  updates.selectChannel('stable')
+  expect(engine.install).not.toHaveBeenCalled()
+  expect(io.backup).not.toHaveBeenCalled()
+  expect((await updates.updateLatest()).phase).toBe('installing')
+  expect(engine.download).toHaveBeenCalledWith(metadata('0.1.14'))
+  expect(io.backup).toHaveBeenCalledOnce()
+})
+it.each([{ dataEpoch: DATA_EPOCH - 1 }, { databaseVersion: DATABASE_VERSION - 1 }])(
+  'blocks incompatible cross-channel rollback before download: %o',
+  async (change) => {
+    const { updates, io, engine } = fixture('0.1.15-beta.2')
+    updates.selectChannel('stable')
+    const originalJson = io.json.getMockImplementation()!
+    io.json.mockImplementation(async (url) =>
+      url.includes('api.github.com') ? originalJson(url) : { ...metadata('0.1.14'), ...change }
+    )
+    expect((await updates.updateLatest()).phase).toBe('error')
+    expect(engine.download).not.toHaveBeenCalled()
+    expect(io.backup).not.toHaveBeenCalled()
+    expect(engine.install).not.toHaveBeenCalled()
+  }
+)
 it('invalidates a downloaded installer when changing channels and persists before changing state', async () => {
   const { updates, io, engine } = fixture()
   await updates.check()
@@ -101,7 +125,7 @@ it('invalidates a downloaded installer when changing channels and persists befor
   await expect(updates.install(true)).rejects.toThrow()
   expect(engine.install).not.toHaveBeenCalled()
 })
-it('rejects channel changes during downloads and never opens an unverified or same-edition URL', async () => {
+it('rejects channel changes during downloads, mismatched channels and invalid installer metadata', async () => {
   const { updates, io, engine } = fixture()
   await updates.check()
   let finish!: () => void
@@ -117,22 +141,29 @@ it('rejects channel changes during downloads and never opens an unverified or sa
   finish()
   await pending
   updates.selectChannel('beta')
-  await expect(updates.openSeparate('0.1.14')).rejects.toThrow()
-  await expect(updates.openSeparate('../../evil')).rejects.toThrow()
+  await expect(updates.download('0.1.14')).rejects.toThrow('선택한 업데이트 채널')
+  await expect(updates.download('../../evil')).rejects.toThrow()
+  io.engine.mockClear()
   io.json.mockResolvedValueOnce({
     ...metadata('0.1.15-beta.2'),
-    file: 'PixaiClackHelper-0.1.15-beta.2-setup.exe'
+    file: 'PixaiClackHelper-Beta-0.1.15-beta.2-setup.exe'
   })
-  expect((await updates.openSeparate('0.1.15-beta.2')).phase).toBe('error')
-  expect(io.openExternal).not.toHaveBeenCalled()
+  expect((await updates.download('0.1.15-beta.2')).phase).toBe('error')
+  expect(io.engine).not.toHaveBeenCalled()
 })
-it('keeps legacy stable manifests readable but refuses legacy beta installers sharing stable identity', () => {
+it('keeps legacy stable manifests readable but refuses separate beta installers and unmarked beta manifests', () => {
   const stable = metadata('0.1.12')
-  expect(parseManifest({ ...stable, channel: undefined }, '0.1.12').version).toBe('0.1.12')
+  expect(
+    parseManifest({ ...stable, channel: undefined, installation: undefined }, '0.1.12').version
+  ).toBe('0.1.12')
   const beta = metadata('0.1.13-beta.1')
   expect(() => parseManifest({ ...beta, channel: undefined }, beta.version)).toThrow()
+  expect(() => parseManifest({ ...beta, installation: undefined }, beta.version)).toThrow()
   expect(() =>
-    parseManifest({ ...beta, file: `PixaiClackHelper-${beta.version}-setup.exe` }, beta.version)
+    parseManifest(
+      { ...beta, file: `PixaiClackHelper-Beta-${beta.version}-setup.exe` },
+      beta.version
+    )
   ).toThrow()
   expect(() => parseManifest({ ...stable, channel: 'beta' }, stable.version)).toThrow()
   expect(
@@ -142,9 +173,9 @@ it('keeps legacy stable manifests readable but refuses legacy beta installers sh
         assets: [
           'latest.yml',
           'pixais-update.json',
-          `PixaiClackHelper-${beta.version}-setup.exe`
+          `PixaiClackHelper-Beta-${beta.version}-setup.exe`
         ].map((name) => ({ name }))
       }
-    ])[0].available
-  ).toBe(false)
+    ])[0]
+  ).toMatchObject({ available: false, legacySeparate: true })
 })

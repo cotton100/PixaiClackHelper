@@ -43,7 +43,7 @@ export default function PixaiApp({
       .invoke('pixai:update-status', {})
       .then((status) => {
         if (live && typeof status?.currentVersion === 'string') {
-          const name = appIdentity(channelForVersion(status.currentVersion)).productName
+          const name = `${appIdentity().productName}${channelForVersion(status.currentVersion) === 'beta' ? ' Beta' : ''}`
           setProductName(name)
           document.title = name
         }

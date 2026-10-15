@@ -17,7 +17,7 @@ it('generates matching per-release update metadata, including prereleases', asyn
       join(dir, 'src/shared/pixai/updates.ts'),
       'export const DATA_EPOCH = 1\nexport const DATABASE_VERSION = 18'
     )
-    const name = 'PixaiClackHelper-Beta-0.1.3-beta.1-setup.exe'
+    const name = 'PixaiClackHelper-0.1.3-beta.1-setup.exe'
     await writeFile(join(dir, 'dist', name), 'fixture bytes')
     await prepareUpdate(dir)
     const manifest = parseManifest(
@@ -26,6 +26,7 @@ it('generates matching per-release update metadata, including prereleases', asyn
     )
     const yml = parse(await readFile(join(dir, 'dist/latest.yml'), 'utf8'))
     expect(manifest.channel).toBe('beta')
+    expect(manifest.installation).toBe('shared')
     expect(manifest.sha512).toBe(createHash('sha512').update('fixture bytes').digest('base64'))
     expect(yml).toMatchObject({
       version: manifest.version,

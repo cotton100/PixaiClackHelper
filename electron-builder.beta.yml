@@ -1,13 +1,4 @@
 extends: ./electron-builder.yml
-appId: com.cotton100.pixais.beta
-productName: PixaiClackHelper Beta
-executableName: PixAIS-Beta
-extraMetadata:
-  name: pixais-beta
-win:
-  executableName: PixAIS-Beta
-nsis:
-  artifactName: PixaiClackHelper-Beta-${version}-setup.${ext}
-  shortcutName: PixaiClackHelper Beta
-  uninstallDisplayName: PixaiClackHelper Beta
-  allowToChangeInstallationDirectory: false
+# Beta changes the update stream, not the installation or workspace identity.
+# The inherited canonical filename also keeps old separate Beta apps from
+# automatically installing this package into their separate directory.

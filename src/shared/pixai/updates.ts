@@ -14,9 +14,11 @@ export interface AppRelease {
   notes: string
   prerelease: boolean
   available: boolean
+  legacySeparate?: boolean
 }
 export interface UpdateManifest {
   channel?: UpdateChannel
+  installation?: 'shared'
   format: 1
   version: string
   dataEpoch: number
@@ -74,8 +76,9 @@ export function parseManifest(value: unknown, version: string): UpdateManifest {
     !Number.isInteger(m.databaseVersion) ||
     m.databaseVersion < 1 ||
     m.file !== installerName(version) ||
+    (m.installation !== undefined && m.installation !== 'shared') ||
     (channelForVersion(version) === 'beta'
-      ? m.channel !== 'beta'
+      ? m.channel !== 'beta' || m.installation !== 'shared'
       : m.channel !== undefined && m.channel !== 'stable') ||
     !Number.isSafeInteger(m.size) ||
     m.size < 1 ||
