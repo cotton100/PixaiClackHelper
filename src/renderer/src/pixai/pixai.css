@@ -699,6 +699,7 @@
 }
 .px-global-error {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
@@ -721,14 +722,17 @@
   height: 100%;
   overflow: auto;
 }
-.px-settings > .px-pane {
+.px-settings-mutations {
+  display: contents;
+}
+:is(.px-settings, .px-settings-mutations) > .px-pane {
   overflow: visible;
   min-height: max-content;
 }
-.px-settings > .px-api-connection {
+:is(.px-settings, .px-settings-mutations) > .px-api-connection {
   grid-row: span 2;
 }
-.px-settings > .px-pane > * {
+:is(.px-settings, .px-settings-mutations) > .px-pane > * {
   flex-shrink: 0;
 }
 .px-settings-notice {
@@ -906,7 +910,7 @@
     height: auto;
     grid-template-columns: 1fr;
   }
-  .px-settings > .px-api-connection {
+  :is(.px-settings, .px-settings-mutations) > .px-api-connection {
     grid-row: auto;
   }
   .px-nav button {

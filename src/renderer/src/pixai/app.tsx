@@ -27,7 +27,8 @@ export default function PixaiApp({
 }: {
   store?: PixaiStore
 }): React.JSX.Element {
-  const { workspace, ready, busy, draftSaving, error } = store()
+  const { workspace, ready, busy, draftSaving, conflict, error } = store()
+  const [confirmReload, setConfirmReload] = useState(false)
   const [tab, setTab] = useState('compose')
   const [productName, setProductName] = useState('PixaiClackHelper')
   const draft = workspace.composeDraft ?? emptyDraft()
@@ -35,6 +36,15 @@ export default function PixaiApp({
   const [epoch, setEpoch] = useState(0)
   useEffect(() => {
     void store.getState().hydrate()
+  }, [store])
+  useEffect(() => {
+    const check = (): void => {
+      const state = store.getState()
+      if (state.ready && !state.busy && !state.draftSaving && !state.conflict)
+        void state.verifyCurrent().catch(() => {})
+    }
+    window.addEventListener('focus', check)
+    return () => window.removeEventListener('focus', check)
   }, [store])
   useEffect(() => {
     if (!window.nais || window.nais.runtime === 'browser') return
@@ -130,7 +140,42 @@ export default function PixaiApp({
       {error && (
         <div className="px-global-error" role="alert">
           {error}
-          {ready ? (
+          {conflict ? (
+            <>
+              <button onClick={() => setTab('settings')}>화면에 남은 재료 백업</button>
+              <span>설정 백업에는 조합 초안·등록 작업·편집 중인 입력은 포함되지 않습니다.</span>
+              {confirmReload ? (
+                <>
+                  <span>
+                    미저장 입력을 버리고 최신 자료를 불러옵니다. 필요한 내용은 먼저 복사해 주세요.
+                  </span>
+                  <button
+                    disabled={busy || draftSaving}
+                    onClick={() => {
+                      void store
+                        .getState()
+                        .reload()
+                        .then((loaded) => {
+                          if (!loaded) return
+                          setEpoch((value) => value + 1)
+                          setSceneEditId('')
+                          setConfirmReload(false)
+                        })
+                    }}
+                  >
+                    미저장 변경을 버리고 불러오기
+                  </button>
+                  <button disabled={busy} onClick={() => setConfirmReload(false)}>
+                    취소
+                  </button>
+                </>
+              ) : (
+                <button disabled={busy || draftSaving} onClick={() => setConfirmReload(true)}>
+                  최신 자료 다시 불러오기
+                </button>
+              )}
+            </>
+          ) : ready ? (
             <button onClick={() => store.getState().clearError()}>닫기</button>
           ) : (
             <button
@@ -147,7 +192,11 @@ export default function PixaiApp({
         <main className="px-content" key={epoch}>
           <fieldset
             className="px-workspace-lock"
-            disabled={busy || (draftSaving && tab === 'settings')}
+            disabled={
+              busy ||
+              (draftSaving && tab === 'settings') ||
+              (conflict && !['settings', 'queue'].includes(tab))
+            }
           >
             <div hidden={tab !== 'compose'} className="px-page">
               <Compose

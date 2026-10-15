@@ -83,6 +83,14 @@ export interface SceneThumbnailStatus {
   images?: SceneThumbnail[]
 }
 export interface PixaiInvokeMap {
+  'pixai:workspace-read': {
+    req: Record<string, never>
+    res: { value: string | null; revision: string }
+  }
+  'pixai:workspace-write': {
+    req: { value: string; expectedRevision: string }
+    res: { saved: true; revision: string } | { saved: false }
+  }
   'pixai:image-info': { req: { bytes: Uint8Array }; res: ImageInfo }
   'pixai:metadata-setting': { req: { enabled: boolean }; res: ConnectionStatus }
   'pixai:scene-thumbnails': { req: { revision?: string }; res: SceneThumbnailStatus }
@@ -100,7 +108,12 @@ export interface PixaiInvokeMap {
   'pixai:folder': { req: Record<string, never>; res: ConnectionStatus }
   'pixai:concurrency': { req: { count: number }; res: ConnectionStatus }
   'pixai:start': {
-    req: { jobs: QueuedJob[]; costsAccepted: boolean; relocatePending?: boolean }
+    req: {
+      jobs: QueuedJob[]
+      costsAccepted: boolean
+      relocatePending?: boolean
+      expectedWorkspaceRevision: string
+    }
     res: RunnerStatus
   }
   'pixai:dismiss-unknown': { req: { id: string; acknowledged: boolean }; res: RunnerStatus }

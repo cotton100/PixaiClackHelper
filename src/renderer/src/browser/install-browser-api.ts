@@ -19,6 +19,7 @@ import type {
   QueueStatus
 } from '@shared/types'
 import {
+  compareAndSetBrowserSetting,
   mutateBrowserState,
   nextBrowserId,
   readBrowserState,
@@ -305,6 +306,42 @@ async function runQueue(): Promise<void> {
 async function dispatch(channel: string, rawRequest: unknown): Promise<unknown> {
   const request = (rawRequest ?? {}) as Record<string, unknown>
 
+  if (channel === 'pixai:workspace-read' || channel === 'pixai:workspace-write') {
+    const key = 'pixais.workspace.v1'
+    const fingerprint = async (value: string | null): Promise<string> => {
+      const digest = await crypto.subtle.digest(
+        'SHA-256',
+        new TextEncoder().encode(JSON.stringify(value))
+      )
+      return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join(
+        ''
+      )
+    }
+    const state = await readBrowserState()
+    const value = state.settings[key] ?? null
+    const revision = await fingerprint(value)
+    if (channel === 'pixai:workspace-read') return { value, revision }
+    if (
+      typeof request.expectedRevision !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(request.expectedRevision)
+    )
+      throw new Error('작업 공간 변경 확인 정보가 없습니다. 앱을 다시 열어 주세요.')
+    if (
+      typeof request.value !== 'string' ||
+      new TextEncoder().encode(request.value).byteLength > 20 * 1024 * 1024
+    )
+      throw new Error('설정 용량을 확인해 주세요.')
+    try {
+      JSON.parse(request.value)
+    } catch {
+      throw new Error('작업 공간 저장 형식을 확인해 주세요.')
+    }
+    if (request.expectedRevision !== revision) return { saved: false }
+    const nextRevision = await fingerprint(request.value)
+    if (!(await compareAndSetBrowserSetting(key, value, request.value))) return { saved: false }
+    return { saved: true, revision: nextRevision }
+  }
+
   if (channel === 'db:status') return { version: 1, path: 'IndexedDB/nais3-web' }
   if (channel === 'app:version') return { version: 'web-dev' }
   if (channel === 'settings:get') {
@@ -312,6 +349,8 @@ async function dispatch(channel: string, rawRequest: unknown): Promise<unknown> 
     return { value: state.settings[String(request.key)] ?? null }
   }
   if (channel === 'settings:set') {
+    if (request.key === 'pixais.workspace.v1')
+      throw new Error('변경 확인 없이 작업 공간을 저장할 수 없습니다.')
     await mutateBrowserState((state) => {
       state.settings[String(request.key)] = String(request.value)
     })
