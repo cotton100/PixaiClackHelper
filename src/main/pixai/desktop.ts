@@ -313,7 +313,7 @@ if (ownsInstance)
           const settings = Array.from(document.querySelectorAll('.px-nav button')).find(button => button.textContent === '설정');
           settings?.click();
           await new Promise(resolve => setTimeout(resolve, 100));
-          return document.title === ${JSON.stringify(identity.productName)} && !!document.querySelector('.px-content') &&
+          return document.title === ${JSON.stringify(identity.productName + (installedChannel === 'beta' ? ' Beta' : ''))} && !!document.querySelector('.px-content') &&
             !!document.querySelector('input[type="password"]') &&
             !connection.connected && status.jobs.length === 0 && forbidden &&
             updates.currentVersion === ${JSON.stringify(app.getVersion())} && updates.phase === 'idle' &&
