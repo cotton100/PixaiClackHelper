@@ -8,6 +8,8 @@
  * 용어: 청크(chunk) = 스크립트의 scenes 배열 항목. 씬(scene card) = 청크 순서+사본. 출연(cast) = 캐릭터+프리셋(+복장 문구).
  */
 
+import { expansionBudget } from './expansion-budget'
+
 export interface ExtraText {
   prompt: string
   negativePrompt: string
@@ -1162,15 +1164,26 @@ export interface ExpandedRequest {
 /** 예약 → 생성 요청 재료(작업). 스크립트의 expandPresetReservations와 같은 규칙; 대기열 상태 필드는 앱 대기열이 붙인다. */
 export function expandReservations(
   value: unknown,
-  options: { idFactory?: () => string; titlePrefix?: string } = {}
+  options: {
+    idFactory?: () => string
+    titlePrefix?: string
+    /** Internal restore path for one already-expanded, stored job. Never multiply here. */
+    restoreSingleJob?: boolean
+  } = {}
 ): ExpandedRequest[] {
   const library = normalizeLibrary(value)
+  if (
+    options.restoreSingleJob &&
+    (library.reservations.length !== 1 || library.reservations[0].count !== 1)
+  )
+    throw new Error('저장 작업 복원은 이미 등록된 작업 한 건씩만 처리합니다.')
   const idFactory = options.idFactory ?? (() => globalThis.crypto.randomUUID())
   const prefix = presetText(options.titlePrefix)
   const copy = <T>(item: T): T => JSON.parse(JSON.stringify(item))
   const jobs: ExpandedRequest[] = []
   const ids = new Set<string>()
-  for (const reservation of library.reservations) {
+  const budget = expansionBudget()
+  const prepared = library.reservations.map((reservation) => {
     const frozen = reservation.snapshot
     const preset =
       frozen?.preset ?? library.presets.find((item) => item.id === reservation.presetId)
@@ -1186,6 +1199,14 @@ export function expandReservations(
         if (!chunk) throw new Error(`예약 ${reservation.id}의 프롬프트 청크가 없습니다: ${sceneId}`)
         return chunk
       })
+    // Existing jobs already occupy their stored size. Restoring one job has no
+    // repeat amplification and must not make an older workspace unreadable.
+    if (!options.restoreSingleJob)
+      budget({ reservation, common, preset, character, chunks, prefix }, reservation.count)
+    return { reservation, common, preset, character, chunks, frozen }
+  })
+  // Preflight every reservation before generating IDs or copying any jobs.
+  for (const { reservation, common, preset, character, chunks, frozen } of prepared) {
     const prompts = composePrompts(
       common,
       character,

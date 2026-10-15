@@ -277,7 +277,7 @@ describe('payload builder', () => {
   })
 })
 
-describe('NAI 웹 실캡처 fixture 동일성 (2026-07-05, V4.5 full)', () => {
+describe('NAI 웹 캡처 구조 fixture 동일성 (캐시 참조값은 합성 값) (2026-07-05, V4.5 full)', () => {
   function loadFixture(name: string): NaiImagePayload {
     return JSON.parse(readFileSync(join(__dirname, 'fixtures', name), 'utf-8'))
   }
@@ -355,7 +355,7 @@ describe('NAI 웹 실캡처 fixture 동일성 (2026-07-05, V4.5 full)', () => {
           referenceType: 'character&style',
           strength: 1,
           fidelity: 1, // → secondary_strength_values [0]
-          cacheSecretKey: '12bb9310725054bf049a3d9e430b192f8d65a760ea672a99820566d732cd412d'
+          cacheSecretKey: '1111111111111111111111111111111111111111111111111111111111111111'
         }
       ]
     })
@@ -372,7 +372,7 @@ describe('NAI 웹 실캡처 fixture 동일성 (2026-07-05, V4.5 full)', () => {
         {
           strength: 0.6,
           cached: {
-            cacheSecretKey: 'f9d2847f65435071139359950e3f4e2faf27533fe12f4ee9b0405bddf67aec6e',
+            cacheSecretKey: '3333333333333333333333333333333333333333333333333333333333333333',
             data: 'ref_multiple_0'
           }
         }

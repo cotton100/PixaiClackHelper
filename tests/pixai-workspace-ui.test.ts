@@ -646,9 +646,14 @@ describe('Composition, grouped reservations and backup controls', () => {
     await act(async () => picker.dispatchEvent(new Event('change', { bubbles: true })))
     expect(container.textContent).toContain('가져올 자료')
     expect(storage.write).not.toHaveBeenCalled()
+    // New default is append; replacement is now an explicit user choice.
+    await act(async () =>
+      (container.querySelectorAll('input[name="backup-mode"]')[1] as HTMLInputElement).click()
+    )
     await click('확인한 백업 적용')
     expect(onImport).toHaveBeenCalledOnce()
-    expect(store.getState().workspace.library).toEqual(backup.library)
+    expect(store.getState().workspace.library).toMatchObject(backup.library)
+    expect(store.getState().workspace.library.sceneCards).toEqual([])
     await act(async () => store.getState().editLibrary(() => pixaiLibrary()))
     await click('스크립트용 내보내기')
     expect(container.textContent).toContain('씬 카드')
