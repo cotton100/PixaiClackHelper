@@ -32,6 +32,8 @@ import {
   stripFolder
 } from './library'
 
+import { expansionBudget } from './expansion-budget'
+
 const defaultIdFactory = (): string => globalThis.crypto.randomUUID()
 
 export interface SceneCardInput {
@@ -130,7 +132,10 @@ export interface ResolvedRow {
 
 /** 행 하나를 캐릭터+프리셋으로 해석한다. 프리셋 미지정·삭제된 재료는 problems로 알린다(임의 대체 없음). */
 export function resolveBatchRow(value: unknown, row: BatchRow): ResolvedRow {
-  const library = normalizeLibrary(value)
+  return resolveRow(normalizeLibrary(value), row)
+}
+
+function resolveRow(library: Library, row: BatchRow): ResolvedRow {
   const key = batchRowKey(row)
   const problems: string[] = []
   let characterId = ''
@@ -226,13 +231,41 @@ export function expandBatchPlan(
 ): BatchExpansion {
   const library = normalizeLibrary(value)
   const plan = normalizeBatchPlan(planInput, (planInput as { id?: string } | null)?.id ?? 'plan')
-  const idFactory = options.idFactory ?? defaultIdFactory
   const batchSize =
     options.batchSize == null || options.batchSize === 0
       ? 4
       : presetInteger(options.batchSize, '배치 장수', 1, 4)
+  const refused = (message: string, jobs: number): BatchExpansion => ({
+    batch: { id: options.batchId ?? 'capacity-error', name: plan.name },
+    plan,
+    reservations: [],
+    problems: [{ level: 'error', message }],
+    order: [],
+    totals: {
+      pairs: plan.rows.length * plan.columns.length,
+      jobs,
+      images: jobs * batchSize,
+      batchSize
+    }
+  })
+  if (
+    plan.rows.length > MAX_RESERVED_JOBS ||
+    plan.columns.length > MAX_RESERVED_JOBS ||
+    plan.rows.length * plan.columns.length > MAX_RESERVED_JOBS
+  )
+    return refused('한 번에 선택할 수 있는 조합은 1,000쌍입니다. 행 또는 씬 선택을 줄여 주세요.', 0)
+  let plannedJobs = 0
+  for (const row of plan.rows)
+    for (const column of plan.columns)
+      plannedJobs += plan.exceptions[batchCellKey(batchRowKey(row), column)] ?? plan.count
+  if (plannedJobs > MAX_RESERVED_JOBS)
+    return refused(
+      '예약 작업은 한 번에 1,000개까지 만들 수 있습니다. 반복 수를 줄여 주세요.',
+      plannedJobs
+    )
+  const idFactory = options.idFactory ?? defaultIdFactory
   const problems: BatchProblem[] = []
-  const rows = plan.rows.map((row) => resolveBatchRow(library, row))
+  const rows = plan.rows.map((row) => resolveRow(library, row))
   for (const row of rows)
     for (const message of row.problems)
       problems.push({ level: 'error', rowKey: row.key, rowName: row.name, message })
@@ -276,6 +309,22 @@ export function expandBatchPlan(
       : plan.count
     if (count > 0) pairs.push({ row, column, count })
   }
+  const budget = expansionBudget()
+  if (!problems.some((item) => item.level === 'error'))
+    for (const { row, column, count } of pairs) {
+      const preset = library.presets.find((item) => item.id === row.presetId)!
+      budget(
+        {
+          common: resolvePresetCommon(library, preset),
+          preset,
+          character: library.characters.find((item) => item.id === row.characterId),
+          column,
+          extra: row.extra,
+          name: plan.name
+        },
+        count
+      )
+    }
   const batch = {
     id: options.batchId ?? idFactory(),
     name: plan.name || defaultBatchName(rows.length, columns.filter(Boolean).length, options.now)

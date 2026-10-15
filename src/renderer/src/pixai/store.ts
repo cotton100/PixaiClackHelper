@@ -17,6 +17,13 @@ import {
 import type { BatchPlan } from '@shared/pixai/library'
 import { resolveImageOptions } from '@shared/pixai/generation-options'
 import { readComposeDraft, type ComposeDraft } from './composition'
+import { expansionBudget, jsonBytes } from '@shared/pixai/expansion-budget'
+import {
+  prepareBackupImport,
+  type TransferBackup,
+  type BackupSelection,
+  type ImportMode
+} from '@shared/pixai/backup-transfer'
 
 export const WORKSPACE_KEY = 'pixais.workspace.v1'
 export interface QueuedJob {
@@ -72,7 +79,10 @@ export function readWorkspace(text: string | null): Workspace {
       ...makeLibrary(),
       reservations: [{ ...reservation, count: 1 }]
     })
-    const rebuilt = expandReservations(library, { idFactory: () => request.id })[0]
+    const rebuilt = expandReservations(library, {
+      idFactory: () => request.id,
+      restoreSingleJob: true
+    })[0]
     return {
       request: {
         ...rebuilt,
@@ -115,6 +125,12 @@ interface PixaiState {
   saveDraft(draft: ComposeDraft): Promise<void>
   editLibrary(update: (library: Library) => Library): Promise<void>
   importBackup(backup: SettingsBackup, expectedRevision: number): Promise<void>
+  importSelectedBackup(
+    backup: TransferBackup,
+    selection: BackupSelection,
+    mode: ImportMode,
+    expectedRevision: number
+  ): Promise<void>
   reserve(plan: BatchPlan, registerNow?: boolean): Promise<BatchExpansion>
   register(): Promise<void>
   clearError(): void
@@ -170,6 +186,7 @@ export function createPixaiStore(
         next.library = strictLibrary(next.library)
         next.options = normalizeSettingsOptions(next.options)
         if (next.composeDraft !== undefined) next.composeDraft = readComposeDraft(next.composeDraft)
+        jsonBytes(next)
         const text = JSON.stringify(next)
         try {
           await storage.write(text)
@@ -232,6 +249,26 @@ export function createPixaiStore(
           options: backup.options,
           widths: { ...backup.options.ui?.paneRatios },
           composeDraft: undefined
+        }
+      }),
+    importSelectedBackup: (backup, selection, mode, expectedRevision) =>
+      get().commit((workspace) => {
+        if (get().revision !== expectedRevision)
+          throw new Error('미리보기 후 자료가 바뀌었습니다. 파일을 다시 골라 확인해 주세요.')
+        const imported = prepareBackupImport(workspace.library, backup, selection, mode)
+        if (
+          workspace.jobs.length + imported.library.reservations.reduce((n, r) => n + r.count, 0) >
+          1000
+        )
+          throw new Error('대기열과 예약을 합쳐 1,000작업까지 담을 수 있습니다.')
+        return {
+          ...workspace,
+          library: imported.library,
+          ...(imported.options
+            ? { options: imported.options, widths: { ...imported.options.ui?.paneRatios } }
+            : {}),
+          // Retain a draft on append; a replacement may invalidate its IDs.
+          ...(mode === 'replace' ? { composeDraft: undefined } : {})
         }
       }),
     reserve: async (plan, registerNow = false) => {
@@ -308,6 +345,13 @@ function registerWorkspace(workspace: Workspace, ids?: string[]): Workspace {
   const reservations = ids
     ? workspace.library.reservations.filter((item) => ids.includes(item.id))
     : workspace.library.reservations
+  if (workspace.jobs.length + reservations.reduce((sum, item) => sum + item.count, 0) > 1000)
+    throw new Error('대기열은 1,000작업까지 담을 수 있습니다.')
+  // Options are also cloned per job, including those from older backups.
+  expansionBudget()(
+    workspace.options,
+    reservations.reduce((sum, item) => sum + item.count, 0)
+  )
   const jobs = expandReservations(
     { ...workspace.library, reservations },
     {
