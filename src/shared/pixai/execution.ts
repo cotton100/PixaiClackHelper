@@ -88,7 +88,6 @@ export interface PixaiInvokeMap {
   'pixai:scene-thumbnails': { req: { revision?: string }; res: SceneThumbnailStatus }
   'pixai:update-status': { req: Record<string, never>; res: UpdateStatus }
   'pixai:update-channel': { req: { channel: 'stable' | 'beta' }; res: UpdateStatus }
-  'pixai:update-open-separate': { req: { version: string }; res: UpdateStatus }
   'pixai:update-check': { req: Record<string, never>; res: UpdateStatus }
   'pixai:update-latest': { req: Record<string, never>; res: UpdateStatus }
   'pixai:update-download': { req: { version: string }; res: UpdateStatus }

@@ -20,7 +20,7 @@ import type { PixaiInvokeMap, ConnectionStatus, ExecutionJob } from '../../share
 
 const smoke = process.argv.includes('--pixais-smoke-test')
 const installedChannel = channelForVersion(app.getVersion())
-const identity = appIdentity(installedChannel)
+const identity = appIdentity()
 app.setName(identity.name)
 app.setPath(
   'userData',
@@ -100,7 +100,6 @@ if (ownsInstance)
               ? 'stable'
               : installedChannel,
         saveChannel: (channel) => setSetting('pixais.updateChannel', channel),
-        openExternal: (url) => shell.openExternal(url),
         supported: app.isPackaged && process.platform === 'win32' && process.arch === 'x64',
         json: publicUpdateJson,
         engine: makeUpdateEngine,
@@ -164,7 +163,6 @@ if (ownsInstance)
       handle('pixai:scene-thumbnails', (req) => thumbnails.status(req?.revision))
       handle('pixai:update-status', () => updates.status())
       handle('pixai:update-channel', (req) => updates.selectChannel(req?.channel))
-      handle('pixai:update-open-separate', (req) => updates.openSeparate(req?.version))
       handle('pixai:update-check', () => updates.check())
       handle('pixai:update-latest', () => updates.updateLatest())
       handle('pixai:update-download', (req) => updates.download(req?.version))
