@@ -1,0 +1,99 @@
+/* 씬 칸: 만들기 짝, 검색 행, 그룹 칩(체크 = 선택, 이름 = 보기 필터). */
+.px-scene-tools {
+  flex-wrap: wrap;
+}
+
+.px-scene-create-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.px-scene-tools > .px-toolbar {
+  margin-left: auto;
+}
+
+.px-scene-search-row > input {
+  flex: 1 1 140px;
+}
+.px-scene-search-row > button {
+  flex: none;
+  padding: 6px 9px;
+}
+
+.px-scene-folder-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 0 8px;
+}
+
+.px-scene-folder {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid var(--px-line);
+  border-radius: 7px;
+  background: var(--px-surface);
+}
+
+.px-scene-folder > label {
+  display: flex;
+  align-items: center;
+  padding: 0 6px 0 7px;
+  margin: 0;
+  cursor: pointer;
+  border-right: 1px solid var(--px-line);
+  border-radius: 6px 0 0 6px;
+  background: var(--px-bg);
+}
+
+.px-scene-folder > label > input {
+  margin: 0;
+}
+
+.px-scene-folder > button {
+  min-width: 0;
+  border: 0;
+  border-radius: 0 6px 6px 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  padding: 6px 9px;
+}
+
+.px-scene-folder > button[aria-pressed='true'] {
+  color: var(--px-accent);
+}
+
+.px-scene-folder small {
+  margin-left: 5px;
+}
+
+.px-scene-folder.is-over {
+  outline: 2px solid var(--px-accent);
+  outline-offset: 2px;
+}
+
+.px-scene-folder-actions,
+.px-scene-folder-form,
+.px-scene-folder-confirm {
+  margin: 0 0 8px;
+}
+
+.px-scene-folder-actions {
+  gap: 6px;
+}
+.px-scene-folder-actions > button {
+  padding: 4px 8px;
+  font-size: 13px;
+}
+
+.px-scene-folder-actions strong {
+  overflow-wrap: anywhere;
+}
+
+.px-scene-folder-form input {
+  min-width: 0;
+  flex: 1;
+}

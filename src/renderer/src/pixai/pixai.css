@@ -749,9 +749,27 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 8px;
-  max-height: 250px;
-  overflow: auto;
   padding: 8px 0;
+}
+.px-mode-chip {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--px-selected);
+  color: var(--px-accent);
+  vertical-align: middle;
+}
+.px-mode-chip.is-replace {
+  background: #423a25;
+  color: #eacb8d;
+}
+.px-import-final {
+  border-top: 1px solid var(--px-line);
+  padding-top: 8px;
+  margin-top: 10px;
 }
 .px-backup-picker .px-check {
   justify-content: flex-start;
@@ -1467,4 +1485,27 @@
   .px-image-info > .px-pane {
     overflow: visible;
   }
+}
+
+/* 같은 목적의 버튼 짝: 추가+폴더 추가, 새 씬+그룹 만들기. */
+.px-app .px-button-pair {
+  display: inline-flex;
+  gap: 0;
+}
+.px-app .px-button-pair > button {
+  border-radius: 0;
+}
+.px-app .px-button-pair > button:first-child {
+  border-radius: 6px 0 0 6px;
+}
+.px-app .px-button-pair > button:last-child {
+  border-radius: 0 6px 6px 0;
+}
+.px-app .px-button-pair > button + button {
+  margin-left: -1px;
+}
+.px-app .px-button-pair > button:hover:not(:disabled),
+.px-app .px-button-pair > button[aria-pressed='true'] {
+  position: relative;
+  z-index: 1;
 }

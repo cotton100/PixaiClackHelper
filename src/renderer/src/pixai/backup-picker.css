@@ -1,0 +1,90 @@
+/* 백업 선택: 종류(부모) → 폴더(자식) 트리. 안쪽 스크롤 없이 접기만 쓴다. */
+.px-backup-picker-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-bottom: 4px;
+}
+.px-backup-picker-head > .px-toolbar {
+  flex: none;
+}
+.px-backup-picker-summary {
+  flex: 1 1 200px;
+  min-width: 0;
+  line-height: 1.45;
+  color: var(--px-accent);
+}
+.px-app .px-backup-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 4px 12px;
+  max-height: none;
+  overflow: visible;
+  padding: 4px 0 0;
+}
+.px-backup-category {
+  min-width: 0;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+.px-backup-category.is-on {
+  background: var(--px-raised);
+}
+.px-backup-category[data-folders='true'] {
+  grid-column: 1 / -1;
+}
+.px-backup-note {
+  margin: 0 0 0 26px;
+}
+.px-app .px-backup-folders {
+  min-width: 0;
+  margin: 4px 0 4px 26px;
+  padding: 0 8px;
+  border-left: 2px solid var(--px-line);
+}
+.px-app .px-backup-folders > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  padding: 4px 0;
+  font-weight: 500;
+  font-size: 13px;
+}
+.px-app .px-backup-folders > summary > small {
+  display: inline;
+  overflow-wrap: anywhere;
+}
+.px-backup-folder-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 4px 12px;
+  padding: 4px 0 8px;
+}
+.px-backup-folder-all {
+  grid-column: 1 / -1;
+  padding-bottom: 2px;
+  border-bottom: 1px dashed var(--px-line);
+}
+.px-backup-folder-list .px-check {
+  align-items: flex-start;
+  overflow-wrap: anywhere;
+}
+.px-backup-folder-list input {
+  flex-shrink: 0;
+}
+.px-app .px-backup-folders > summary {
+  list-style: none;
+}
+.px-app .px-backup-folders > summary::-webkit-details-marker {
+  display: none;
+}
+.px-app .px-backup-folders > summary::before {
+  content: '▸';
+  color: var(--px-muted);
+  font-size: 12px;
+}
+.px-app .px-backup-folders[open] > summary::before {
+  content: '▾';
+}

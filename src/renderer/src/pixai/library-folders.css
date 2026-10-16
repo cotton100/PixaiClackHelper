@@ -1,0 +1,126 @@
+/* 재료 목록: 선택 막대, 폴더 머리 행, 이동 대체 버튼. */
+.px-library-add-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.px-select-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  min-width: 0;
+}
+.px-select-bar > small {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.35;
+}
+.px-select-bar[data-active='true'] > small {
+  color: var(--px-accent);
+}
+.px-bulk-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--px-accent);
+  border-radius: 6px;
+  background: var(--px-selected);
+}
+.px-bulk-tools > .px-toolbar > button {
+  padding: 5px 8px;
+}
+.px-bulk-tools > .px-toolbar > .px-toolbar-gap {
+  width: 1px;
+  align-self: stretch;
+  background: var(--px-line);
+  margin: 0 2px;
+}
+.px-bulk-move > summary {
+  padding: 4px 0;
+  font-weight: 500;
+  font-size: 13px;
+}
+.px-bulk-move > .px-inline {
+  padding: 4px 0 2px;
+}
+.px-folder-heading-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.px-folder-heading-row > .px-folder-heading {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 7px;
+}
+.px-folder-heading-row > input[type='checkbox'] {
+  flex: 0 0 auto;
+  margin: 0 3px 0 1px;
+}
+.px-folder-heading-row .px-folder-action {
+  flex: 0 0 auto;
+  padding: 6px;
+  color: var(--px-muted);
+  background: transparent;
+  border-color: transparent;
+}
+.px-folder-heading-row .px-folder-action:hover:not(:disabled),
+.px-folder-heading-row .px-folder-action:focus-visible {
+  color: var(--px-text);
+  border-color: var(--px-line);
+}
+.px-folder-tools {
+  display: inline-flex;
+  gap: 2px;
+  opacity: 0.55;
+}
+.px-folder-heading-row:hover .px-folder-tools,
+.px-folder-heading-row:focus-within .px-folder-tools {
+  opacity: 1;
+}
+.px-folder-heading-row .px-folder-move-selection {
+  gap: 4px;
+  padding: 5px 7px;
+  font-size: 12px;
+  color: var(--px-accent);
+  border-color: var(--px-line);
+  white-space: nowrap;
+}
+.px-drop-target .px-folder-move-selection {
+  background: var(--px-selected);
+}
+.px-folder-selection-help {
+  display: block;
+  color: var(--px-muted);
+  margin: 2px 0 8px;
+  line-height: 1.45;
+}
+.px-folder-selection-help[data-scoped='true'] {
+  color: var(--px-accent);
+}
+.px-folder-rename {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 0 6px 24px;
+}
+.px-folder-rename > input {
+  flex: 1 1 130px;
+  min-width: 0;
+}
+.px-chunk-group > .px-confirm {
+  margin: 4px 0 8px 24px;
+}
+.px-drag-label {
+  width: max-content;
+  max-width: 280px;
+  padding: 9px 13px;
+  color: var(--px-text);
+  background: var(--px-bg);
+  border: 1px solid var(--px-accent);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px #0004;
+}

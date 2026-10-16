@@ -106,3 +106,11 @@ it('switching source clears selections; saving a chunk does not switch the activ
   expect(f.store.getState().workspace.library.scenes.at(-1)?.prompt).toBe('different')
   expect(f.onCompose).not.toHaveBeenCalled()
 })
+it('explains the opt-in PNG setting when no supported generation record was found without changing files or settings', async () => {
+  vi.stubGlobal('nais', { invoke: vi.fn(async () => ({ ...result, sources: [], raw: [] })) })
+  const f = await setup()
+  expect(container.textContent).toContain('PNG 안에 생성 요청 정보 기록')
+  expect(container.textContent).toContain('기존 파일에는 정보를 추가하지 않습니다')
+  expect(f.storage.write).not.toHaveBeenCalled()
+  expect(window.nais.invoke).toHaveBeenCalledTimes(1)
+})

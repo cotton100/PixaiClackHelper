@@ -62,6 +62,84 @@ async function read(file: TransferBackup): Promise<void> {
 }
 
 describe('backup selection UI', () => {
+  it('exports a chosen chunk folder with its count and excludes unfiled and other folders', async () => {
+    const source = pixaiLibrary()
+    source.chunkFolders = [
+      { id: 'f1', name: '표정 폴더' },
+      { id: 'f2', name: '동작 폴더' },
+      { id: 'empty', name: '빈 폴더' }
+    ]
+    source.scenes[0].folderId = 'f1'
+    source.scenes[1].folderId = 'f2'
+    await act(async () => store.getState().editLibrary(() => source))
+    write.mockClear()
+    const out = panel('백업 내보내기')
+    await click(btn(out, '선택 해제'))
+    await click(check(out, '청크'))
+    expect(out.textContent).toContain('표정 폴더 · 1개')
+    expect(out.textContent).toContain('미분류 · 1개')
+    await click(check(out, '전체 폴더'))
+    await click(check(out, '표정 폴더'))
+    await click(check(out, '빈 폴더'))
+    await click(btn(out, '앱용 내보내기'))
+    expect(out.textContent).toContain('청크: 표정 폴더 (1개), 빈 폴더 (0개)')
+    const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:synthetic')
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    await click(btn(out, '백업 파일 저장'))
+    const exported = parseTransferBackup(await (create.mock.calls[0][0] as Blob).text())
+    expect(exported.version).toBe(2)
+    expect(exported.folderSelection).toEqual({ scenes: ['f1', 'empty'] })
+    expect(exported.backup.library.scenes.map((x) => x.id)).toEqual(['s1'])
+    expect(write).not.toHaveBeenCalled()
+  })
+
+  it('previews and applies empty-folder replacement without clearing unselected materials', async () => {
+    const original = pixaiLibrary()
+    original.chunkFolders = [
+      { id: 'f1', name: '비울 폴더' },
+      { id: 'f2', name: '유지 폴더' }
+    ]
+    original.scenes[0].folderId = 'f1'
+    original.scenes[1].folderId = 'f2'
+    await act(async () => store.getState().editLibrary(() => original))
+    const source = structuredClone(original)
+    source.scenes = source.scenes.slice(1)
+    await read(
+      makeTransferBackup(source, options, { ...backupSelection(false), scenes: true }, meta, {
+        scenes: ['f1']
+      })
+    )
+    const incoming = panel('백업 가져오기')
+    expect(incoming.textContent).toContain('비울 폴더 · 0개')
+    expect(incoming.textContent).not.toContain('유지 폴더')
+    await click(check(incoming, '선택한 항목만 교체'))
+    expect(incoming.textContent).toContain('교체 범위: 청크: 비울 폴더 (0개)')
+    expect(incoming.textContent).toContain('0개인 폴더는 그 폴더 안의 기존 자료를 비웁니다')
+    expect(incoming.querySelector('[aria-label="적용 후 자료 수"]')?.textContent).toContain(
+      '3개 → 2개'
+    )
+    await click(btn(incoming, '확인한 백업 적용'))
+    expect(store.getState().workspace.library.scenes).toEqual(original.scenes.slice(1))
+    expect(store.getState().workspace.library.chunkFolders).toHaveLength(2)
+  })
+
+  it('lists partial-folder dependencies while keeping them out of replacement selection', async () => {
+    const source = pixaiLibrary()
+    source.sceneFolders = [{ id: 'sf1', name: '고른 씬 모음' }]
+    source.sceneCards![0].folderId = 'sf1'
+    await read(
+      makeTransferBackup(source, options, { ...backupSelection(false), sceneCards: true }, meta, {
+        sceneCards: ['sf1']
+      })
+    )
+    const incoming = panel('백업 가져오기')
+    expect(check(incoming, '청크').disabled).toBe(true)
+    expect(incoming.textContent).toContain('연결 때문에 함께 추가하는 자료: 청크 1개')
+    await click(btn(incoming, '전체 선택'))
+    expect(check(incoming, '청크').checked).toBe(false)
+    expect(check(incoming, '고른 씬 모음').checked).toBe(true)
+  })
+
   it('exports checked categories with visible dependencies and no unrelated settings', async () => {
     const out = panel('백업 내보내기')
     await click(btn(out, '선택 해제'))

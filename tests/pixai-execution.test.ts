@@ -56,6 +56,13 @@ async function finished(runner: PixaiRunner): Promise<void> {
   await vi.waitFor(() => expect(runner.status().running).toBe(false))
 }
 describe('PixAI generation boundary', () => {
+  it('keeps the original registration date through status updates and runner restart', async () => {
+    const f = fixture()
+    f.runner.start([{ ...job(), registeredAt: 1700000000000 }], '/output', 1)
+    await finished(f.runner)
+    expect(f.runner.status().jobs[0]).toMatchObject({ state: 'done', registeredAt: 1700000000000 })
+    expect(new PixaiRunner(f.io).status().jobs[0].registeredAt).toBe(1700000000000)
+  })
   it('preserves original-save warnings through a later failure, recovery and completed restart without resubmitting', async () => {
     const f = fixture()
     const warning = '생성 요청 정보를 추가하지 못해 원본 그대로 저장했습니다.'

@@ -3,6 +3,7 @@ import { RatioMark } from './ratio-mark'
 import { Children, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   DndContext,
+  DragOverlay,
   KeyboardSensor,
   PointerSensor,
   closestCenter,
@@ -172,6 +173,9 @@ export function SortableItems({
   ids,
   onReorder,
   onDrop,
+  onDragStart,
+  onDragCancel,
+  dragLabel,
   grid = false,
   children
 }: {
@@ -179,8 +183,12 @@ export function SortableItems({
   onReorder: (ids: string[]) => void
   grid?: boolean
   onDrop?: (id: string, target: string) => boolean
+  onDragStart?: (id: string) => void
+  onDragCancel?: () => void
+  dragLabel?: (id: string) => string
   children: ReactNode
 }): React.JSX.Element {
+  const [dragging, setDragging] = useState<string | null>(null)
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
@@ -189,7 +197,16 @@ export function SortableItems({
     <DndContext
       sensors={sensors}
       collisionDetection={closestCenter}
+      onDragStart={({ active }) => {
+        setDragging(String(active.id))
+        onDragStart?.(String(active.id))
+      }}
+      onDragCancel={() => {
+        setDragging(null)
+        onDragCancel?.()
+      }}
       onDragEnd={({ active, over }) => {
+        setDragging(null)
         if (!over || active.id === over.id) return
         if (onDrop?.(String(active.id), String(over.id))) return
         const from = ids.indexOf(String(active.id)),
@@ -203,6 +220,15 @@ export function SortableItems({
       >
         {children}
       </SortableContext>
+      {dragLabel && (
+        <DragOverlay dropAnimation={null}>
+          {dragging && (
+            <div className="px-drag-label" role="status">
+              {dragLabel(dragging)}
+            </div>
+          )}
+        </DragOverlay>
+      )}
     </DndContext>
   )
 }
@@ -210,14 +236,17 @@ export function SortableItems({
 export function SortableItem({
   id,
   name,
+  disabled = false,
   children
 }: {
   id: string
   name: string
+  disabled?: boolean
   children: ReactNode
 }): React.JSX.Element {
   const { setNodeRef, transform, transition, isDragging, attributes, listeners } = useSortable({
-    id
+    id,
+    disabled
   })
   return (
     <div
@@ -233,6 +262,7 @@ export function SortableItem({
         type="button"
         className="px-grip"
         aria-label={`${name} 순서 이동`}
+        disabled={disabled}
         title="드래그 또는 Space를 누르고 방향키로 이동"
         {...attributes}
         {...listeners}

@@ -3,14 +3,17 @@ import { Download, Upload } from 'lucide-react'
 import { exportForScript, makeSettingsBackup } from '@shared/pixai/library'
 import {
   BACKUP_CATEGORIES,
+  BACKUP_FOLDER_CATEGORIES,
   BACKUP_LABELS,
   backupSelection,
+  backupSelectionLabels,
   makeTransferBackup,
   parseTransferBackup,
   prepareBackupImport,
   selectBackupLibrary,
   type TransferBackup,
-  type ImportMode
+  type ImportMode,
+  type BackupFolderSelection
 } from '@shared/pixai/backup-transfer'
 import type { PixaiStore } from './store'
 import { ApiConnection } from './execution'
@@ -30,14 +33,21 @@ export function BackupSettings({
   )
   const [importSelection, setImportSelection] = useState(backupSelection(false))
   const [exportSelection, setExportSelection] = useState(backupSelection())
+  const [importFolders, setImportFolders] = useState<BackupFolderSelection>({})
+  const [exportFolders, setExportFolders] = useState<BackupFolderSelection>({})
   const [mode, setMode] = useState<ImportMode>('append')
   const fileRead = useRef(0)
   const [exportTarget, setExportTarget] = useState<'app' | 'script' | null>(null)
   const [notice, setNotice] = useState('')
   const available = preview ? { ...preview.transfer.selection } : backupSelection(false)
   if (preview)
-    for (const key of BACKUP_CATEGORIES)
+    for (const key of BACKUP_CATEGORIES) {
+      // Partial folder backups contain only the referenced subset of dependency
+      // folders; those cannot safely become whole-folder replacement targets.
+      if (preview.transfer.version === 2 && BACKUP_FOLDER_CATEGORIES.some((x) => x === key))
+        continue
       available[key] ||= !!preview.transfer.backup.library[key]?.length
+    }
   const importResult = useMemo(() => {
     if (!preview) return null
     try {
@@ -48,7 +58,8 @@ export function BackupSettings({
           preview.transfer,
           importSelection,
           mode,
-          () => `import-preview-${++id}`
+          () => `import-preview-${++id}`,
+          importFolders
         ),
         error: ''
       }
@@ -58,17 +69,23 @@ export function BackupSettings({
         error: error instanceof Error ? error.message : '가져올 자료를 확인해 주세요.'
       }
     }
-  }, [preview, workspace.library, importSelection, mode])
+  }, [preview, workspace.library, importSelection, mode, importFolders])
   const selectedExport = useMemo(() => {
     try {
-      return { value: selectBackupLibrary(workspace.library, exportSelection), error: '' }
+      for (const key of BACKUP_FOLDER_CATEGORIES)
+        if (exportSelection[key] && exportFolders[key]?.length === 0)
+          throw new Error(`${BACKUP_LABELS[key]}에서 폴더를 하나 이상 선택해 주세요.`)
+      return {
+        value: selectBackupLibrary(workspace.library, exportSelection, exportFolders),
+        error: ''
+      }
     } catch (error) {
       return {
         value: null,
         error: error instanceof Error ? error.message : '백업할 자료를 확인해 주세요.'
       }
     }
-  }, [workspace.library, exportSelection])
+  }, [workspace.library, exportSelection, exportFolders])
   const dropped = exportForScript(workspace.library).dropped
   if (workspace.options.ui) dropped.keys.push('options.ui')
   const names: Record<string, string> = {
@@ -95,6 +112,7 @@ export function BackupSettings({
       const transfer = parseTransferBackup(await file.text())
       if (reading !== fileRead.current) return
       setImportSelection({ ...transfer.selection, options: false })
+      setImportFolders(transfer.folderSelection ?? {})
       setMode('append')
       setPreview({ transfer, revision: at })
     } catch (error) {
@@ -107,10 +125,16 @@ export function BackupSettings({
     try {
       const backup =
         exportTarget === 'app'
-          ? makeTransferBackup(workspace.library, workspace.options, exportSelection, {
-              appVersion: 'PixaiClackHelper',
-              exportedAt: new Date().toISOString()
-            })
+          ? makeTransferBackup(
+              workspace.library,
+              workspace.options,
+              exportSelection,
+              {
+                appVersion: 'PixaiClackHelper',
+                exportedAt: new Date().toISOString()
+              },
+              exportFolders
+            )
           : makeSettingsBackup(
               workspace.library,
               workspace.options,
@@ -159,13 +183,21 @@ export function BackupSettings({
             />
           </label>
           {preview && (
-            <div className="px-confirm">
-              <h3>가져올 자료</h3>
+            <div className="px-confirm px-import-confirm">
+              <h3>
+                가져올 자료{' '}
+                <span className={`px-mode-chip is-${mode}`}>
+                  {mode === 'append' ? '추가 방식' : '교체 방식'}
+                </span>
+              </h3>
               <BackupPicker
                 library={preview.transfer.backup.library}
                 value={importSelection}
                 onChange={setImportSelection}
                 available={available}
+                folderSelection={importFolders}
+                onFolderChange={setImportFolders}
+                folderLimits={preview.transfer.folderSelection}
                 disabled={busy}
               />
               <fieldset className="px-backup-picker" disabled={busy}>
@@ -192,17 +224,20 @@ export function BackupSettings({
               <p>
                 {mode === 'append'
                   ? '같은 이름도 새 자료로 추가합니다. 원래 자료는 덮어쓰지 않습니다.'
-                  : '체크한 종류의 목록 전체와 해당 폴더를 교체합니다. 체크하지 않은 종류는 유지합니다.'}{' '}
+                  : '폴더를 골랐다면 해당 폴더만, 전체 폴더라면 해당 종류의 목록 전체를 교체합니다. 다른 폴더와 종류는 유지합니다.'}{' '}
                 등록된 대기 작업은 유지합니다.
               </p>
               {mode === 'replace' && (
                 <p className="px-backup-warning">
                   교체 범위:{' '}
-                  {Object.keys(importSelection)
-                    .filter((key) => importSelection[key as keyof typeof importSelection])
-                    .map((key) => BACKUP_LABELS[key as keyof typeof importSelection])
-                    .join(' · ') || '없음'}
-                  . 0개인 항목을 체크하면 해당 목록을 비웁니다.
+                  {backupSelectionLabels(
+                    preview.transfer.backup.library,
+                    importSelection,
+                    importFolders
+                  ).join(' · ') || '없음'}
+                  . 0개인 폴더는 그 폴더 안의 기존 자료를 비웁니다. 전체 폴더에서 0개인 종류를
+                  체크하면 해당 목록 전체를 비웁니다. 폴더는 고유 ID로 구분하므로 이름만 같은 다른
+                  폴더는 유지합니다.
                 </p>
               )}
               {importSelection.options && (
@@ -255,13 +290,28 @@ export function BackupSettings({
                   미리보기 후 자료가 바뀌었습니다. 파일을 다시 선택해 주세요.
                 </p>
               )}
+              <p className="px-import-final">
+                <strong>최종 적용:</strong>{' '}
+                {mode === 'append' ? '기존 자료에 추가' : '선택 범위 교체'} ·{' '}
+                {backupSelectionLabels(
+                  preview.transfer.backup.library,
+                  importSelection,
+                  importFolders
+                ).join(' · ') || '선택한 항목 없음'}
+              </p>
               <button
                 className="px-primary"
                 disabled={busy || revision !== preview.revision || !importResult?.value}
                 onClick={() => {
                   void store
                     .getState()
-                    .importSelectedBackup(preview.transfer, importSelection, mode, preview.revision)
+                    .importSelectedBackup(
+                      preview.transfer,
+                      importSelection,
+                      mode,
+                      preview.revision,
+                      importFolders
+                    )
                     .then(() => {
                       setPreview(null)
                       setNotice('설정 백업을 적용했습니다.')
@@ -280,13 +330,15 @@ export function BackupSettings({
       <section className="px-pane">
         <h2>백업 내보내기</h2>
         <p>
-          앱용 백업은 아래에서 고른 종류만 담습니다. 폴더와 필요한 연결 자료는 함께 포함합니다. API
+          앱용 백업은 아래에서 고른 종류·폴더를 담습니다. 필요한 연결 자료는 함께 포함합니다. API
           키·저장 폴더·이미지 파일·등록된 대기 작업은 포함하지 않습니다.
         </p>
         <BackupPicker
           library={workspace.library}
           value={exportSelection}
           onChange={setExportSelection}
+          folderSelection={exportFolders}
+          onFolderChange={setExportFolders}
           disabled={busy}
         />
         <div className="px-toolbar">
@@ -336,10 +388,9 @@ export function BackupSettings({
               <>
                 <p>
                   선택한 항목:{' '}
-                  {Object.keys(exportSelection)
-                    .filter((key) => exportSelection[key as keyof typeof exportSelection])
-                    .map((key) => BACKUP_LABELS[key as keyof typeof exportSelection])
-                    .join(' · ')}
+                  {backupSelectionLabels(workspace.library, exportSelection, exportFolders).join(
+                    ' · '
+                  )}
                 </p>
                 <p>
                   연결 자료 추가:{' '}
@@ -352,8 +403,8 @@ export function BackupSettings({
                 </p>
                 {selectedExport.error && <p className="px-error">{selectedExport.error}</p>}
                 <small>
-                  선택 백업은 이 기능이 있는 앱에서 불러와 주세요. 예전 앱과 스크립트는 선택 백업
-                  형식을 읽지 못합니다.
+                  폴더 선택 백업은 폴더 백업 기능이 있는 앱에서 불러와 주세요. 예전 앱은 이 형식을
+                  읽지 못합니다. 스크립트에서는 앱용 선택 백업을 읽을 수 없습니다.
                 </small>
               </>
             )}
