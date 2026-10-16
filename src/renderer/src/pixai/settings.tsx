@@ -148,7 +148,7 @@ export function BackupSettings({
         throw new Error('백업이 5MiB를 넘습니다. 내보낼 항목을 나눠 주세요.')
       const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }))
       link.href = url
-      link.download = `PixAIS-${exportTarget}-${new Date().toISOString().replace(/[:.]/g, '-')}.json`
+      link.download = `PixaiClackHelper-${exportTarget}-${new Date().toISOString().replace(/[:.]/g, '-')}.json`
       link.click()
       setTimeout(() => URL.revokeObjectURL(url), 1000)
       setNotice(`${exportTarget === 'app' ? '앱용' : '스크립트용'} 설정 백업을 내보냈습니다.`)
