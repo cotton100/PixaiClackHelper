@@ -16,6 +16,7 @@ import { PixaisUpdates, publicUpdateJson, canInstallUpdate } from './updates'
 import { makeUpdateEngine } from './update-engine'
 import { appIdentity, channelForVersion } from '../../shared/pixai/channels'
 import { backupBeforeUpdate, preserveSettingsOnVersionChange } from './settings-backup'
+import { assertWorkspaceRevision, readWorkspace, writeWorkspace } from './workspace-storage'
 import type { PixaiInvokeMap, ConnectionStatus, ExecutionJob } from '../../shared/pixai/execution'
 
 const smoke = process.argv.includes('--pixais-smoke-test')
@@ -140,6 +141,8 @@ if (ownsInstance)
         })
       }
       handle('pixai:status', () => runner.status())
+      handle('pixai:workspace-read', () => readWorkspace(getDb()))
+      handle('pixai:workspace-write', (req) => writeWorkspace(getDb(), req))
       handle('pixai:image-info', async (req) => {
         if (readingImage) throw new Error('이미지를 확인 중입니다. 잠시 후 다시 시도해 주세요.')
         readingImage = true
@@ -209,6 +212,7 @@ if (ownsInstance)
         if (req.costsAccepted !== true) throw new Error('생성 비용 안내를 확인해 주세요.')
         await checkFolder(outputDir)
         updateIdle()
+        assertWorkspaceRevision(getDb(), req.expectedWorkspaceRevision)
         runner.start(req.jobs, outputDir, maxInFlight, req.relocatePending === true, embedMetadata)
         return runner.status()
       })
@@ -242,14 +246,10 @@ if (ownsInstance)
             } else if (req.action === 'close') win.close()
             return
           }
-          if (req.key !== 'pixais.workspace.v1') throw new Error('허용되지 않은 설정입니다.')
+          if (req?.key !== 'pixais.workspace.v1') throw new Error('허용되지 않은 설정입니다.')
           if (channel === 'settings:get') return { value: getSetting(req.key) }
           updateIdle()
-          if (typeof req.value !== 'string' || Buffer.byteLength(req.value) > 20 * 1024 * 1024)
-            throw new Error('설정 용량을 확인해 주세요.')
-          JSON.parse(req.value)
-          setSetting(req.key, req.value)
-          return {}
+          throw new Error('변경 확인 없이 작업 공간을 저장할 수 없습니다.')
         })
       }
       win = new BrowserWindow({
@@ -313,7 +313,7 @@ if (ownsInstance)
           const settings = Array.from(document.querySelectorAll('.px-nav button')).find(button => button.textContent === '설정');
           settings?.click();
           await new Promise(resolve => setTimeout(resolve, 100));
-          return document.title === ${JSON.stringify(identity.productName)} && !!document.querySelector('.px-content') &&
+          return document.title === ${JSON.stringify(identity.productName + (installedChannel === 'beta' ? ' Beta' : ''))} && !!document.querySelector('.px-content') &&
             !!document.querySelector('input[type="password"]') &&
             !connection.connected && status.jobs.length === 0 && forbidden &&
             updates.currentVersion === ${JSON.stringify(app.getVersion())} && updates.phase === 'idle' &&

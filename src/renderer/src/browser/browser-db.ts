@@ -137,3 +137,34 @@ export function nextBrowserId(state: BrowserState): number {
   state.nextId += 1
   return id
 }
+
+/** Compare the raw setting and update in one IndexedDB readwrite transaction.
+ * The caller may compute a digest asynchronously before this point; the raw
+ * comparison also rejects changes committed while that digest was pending. */
+export function compareAndSetBrowserSetting(
+  key: string,
+  expected: string | null,
+  value: string
+): Promise<boolean> {
+  const operation = mutationQueue.then(async () => {
+    const db = await database()
+    return new Promise<boolean>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite')
+      const store = tx.objectStore(STORE_NAME)
+      const request = store.get(STATE_KEY)
+      let saved = false
+      request.onsuccess = () => {
+        const state = (request.result ?? emptyState()) as BrowserState
+        if ((state.settings[key] ?? null) !== expected) return
+        state.settings[key] = value
+        store.put(state, STATE_KEY)
+        saved = true
+      }
+      tx.oncomplete = () => resolve(saved)
+      tx.onerror = () => reject(new Error('작업 공간을 저장하지 못했습니다.'))
+      tx.onabort = () => reject(new Error('작업 공간 저장이 취소되었습니다.'))
+    })
+  })
+  mutationQueue = operation.catch(() => undefined)
+  return operation
+}

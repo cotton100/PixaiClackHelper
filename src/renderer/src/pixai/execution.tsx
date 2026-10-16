@@ -2,7 +2,7 @@ import { StageChips } from './controls'
 import { RatioMark } from './ratio-mark'
 import { useEffect, useState } from 'react'
 import type { ConnectionStatus, JobState, RunnerStatus } from '@shared/pixai/execution'
-import type { PixaiStore } from './store'
+import { isWorkspaceConflict, WORKSPACE_CONFLICT_MESSAGE, type PixaiStore } from './store'
 
 const labels: Record<JobState, string> = {
   queued: '제출 대기',
@@ -162,7 +162,7 @@ export function ApiConnection(): React.JSX.Element {
   )
 }
 export function ExecutionQueue({ store }: { store: PixaiStore }): React.JSX.Element {
-  const { workspace, busy } = store()
+  const { workspace, busy, conflict, draftSaving } = store()
   const [status, setStatus] = useState<RunnerStatus | null>(null),
     [error, setError] = useState(''),
     [working, setWorking] = useState(false)
@@ -255,12 +255,14 @@ export function ExecutionQueue({ store }: { store: PixaiStore }): React.JSX.Elem
     try {
       await run()
     } catch (e) {
+      if (isWorkspaceConflict(e))
+        store.setState({ conflict: true, error: WORKSPACE_CONFLICT_MESSAGE })
       setError(e instanceof Error ? e.message : '실행 실패')
     } finally {
       setWorking(false)
     }
   }
-  const disabled = busy || working || (!browser && !status)
+  const disabled = busy || working || conflict || draftSaving || (!browser && !status)
   return (
     <section className="px-pane px-queue">
       <header>
@@ -279,7 +281,7 @@ export function ExecutionQueue({ store }: { store: PixaiStore }): React.JSX.Elem
             시작·저장 재개
           </button>
           <button
-            disabled={disabled || !status?.running}
+            disabled={working || !status?.running}
             onClick={() =>
               void action(async () => setStatus(await window.nais.invoke('pixai:pause', {})))
             }
@@ -333,9 +335,11 @@ export function ExecutionQueue({ store }: { store: PixaiStore }): React.JSX.Elem
             disabled={disabled || !costs}
             onClick={() =>
               void action(async () => {
+                const expectedWorkspaceRevision = await store.getState().verifyCurrent()
                 setStatus(
                   await window.nais.invoke('pixai:start', {
                     jobs: workspace.jobs,
+                    expectedWorkspaceRevision: expectedWorkspaceRevision ?? '',
                     costsAccepted: true,
                     relocatePending: relocate
                   })

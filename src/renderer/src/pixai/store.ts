@@ -42,6 +42,17 @@ export interface Workspace {
 export interface WorkspaceStorage {
   read(): Promise<string | null>
   write(value: string): Promise<void>
+  verify?(): Promise<string>
+}
+export const WORKSPACE_CONFLICT_MESSAGE =
+  '저장된 자료가 다른 곳에서 변경되어 덮어쓰기를 막았습니다. 현재 화면은 유지됩니다. 미저장 입력을 확인한 뒤 최신 자료를 다시 불러와 주세요.'
+export class WorkspaceConflictError extends Error {
+  constructor() {
+    super(`WORKSPACE_CONFLICT: ${WORKSPACE_CONFLICT_MESSAGE}`)
+  }
+}
+export function isWorkspaceConflict(error: unknown): boolean {
+  return error instanceof Error && error.message.includes('WORKSPACE_CONFLICT:')
 }
 export function emptyWorkspace(): Workspace {
   return {
@@ -118,9 +129,12 @@ interface PixaiState {
   ready: boolean
   busy: boolean
   draftSaving: boolean
+  conflict: boolean
   error: string
   revision: number
   hydrate(): Promise<void>
+  reload(): Promise<boolean>
+  verifyCurrent(): Promise<string | undefined>
   commit(update: (workspace: Workspace) => Workspace): Promise<void>
   saveDraft(draft: ComposeDraft): Promise<void>
   editLibrary(update: (library: Library) => Library): Promise<void>
@@ -136,15 +150,35 @@ interface PixaiState {
   clearError(): void
 }
 
-const databaseStorage: WorkspaceStorage = {
-  read: async () => (await window.nais.invoke('settings:get', { key: WORKSPACE_KEY })).value,
-  write: async (value) => {
-    await window.nais.invoke('settings:set', { key: WORKSPACE_KEY, value })
+function databaseStorage(): WorkspaceStorage {
+  let revision: string | null = null
+  return {
+    read: async () => {
+      const snapshot = await window.nais.invoke('pixai:workspace-read', {})
+      revision = snapshot.revision
+      return snapshot.value
+    },
+    write: async (value) => {
+      if (revision === null) throw new Error('작업 공간을 먼저 불러와 주세요.')
+      const result = await window.nais.invoke('pixai:workspace-write', {
+        value,
+        expectedRevision: revision
+      })
+      if (!result.saved) throw new WorkspaceConflictError()
+      revision = result.revision
+    },
+    verify: async () => {
+      const expected = revision
+      const snapshot = await window.nais.invoke('pixai:workspace-read', {})
+      if (revision !== expected) throw new Error('저장 상태가 바뀌었습니다. 다시 시도해 주세요.')
+      if (revision === null || snapshot.revision !== revision) throw new WorkspaceConflictError()
+      return revision
+    }
   }
 }
 
 export function createPixaiStore(
-  storage: WorkspaceStorage = databaseStorage
+  storage: WorkspaceStorage = databaseStorage()
 ): UseBoundStore<StoreApi<PixaiState>> {
   let loading: Promise<void> | undefined
   let draftWrites: Promise<void> = Promise.resolve()
@@ -155,9 +189,12 @@ export function createPixaiStore(
     ready: false,
     busy: false,
     draftSaving: false,
+    conflict: false,
     error: '',
     revision: 0,
-    clearError: () => set({ error: '' }),
+    clearError: () => {
+      if (!get().conflict) set({ error: '' })
+    },
     hydrate: () => {
       if (get().ready) return Promise.resolve()
       if (loading) return loading
@@ -175,13 +212,50 @@ export function createPixaiStore(
       })()
       return loading
     },
+    reload: async () => {
+      if (!get().conflict || get().busy || get().draftSaving || loading) return false
+      set({ busy: true })
+      try {
+        await draftWrites.catch(() => {})
+        const workspace = readWorkspace(await storage.read())
+        savedDraft = workspace.composeDraft
+        draftSequence++
+        draftWrites = Promise.resolve()
+        set({ workspace, ready: true, conflict: false, error: '', revision: get().revision + 1 })
+        return true
+      } catch {
+        set({
+          error:
+            '최신 자료를 읽지 못했습니다. 현재 화면과 저장 차단을 유지합니다. 다시 시도해 주세요.'
+        })
+        return false
+      } finally {
+        set({ busy: false })
+      }
+    },
+    verifyCurrent: async () => {
+      if (!get().ready || get().busy || get().draftSaving)
+        throw new Error('작업 공간을 불러오거나 저장한 뒤 다시 시도해 주세요.')
+      if (get().conflict) throw new WorkspaceConflictError()
+      try {
+        const revision = await storage.verify?.()
+        if (get().conflict) throw new WorkspaceConflictError()
+        if (get().busy || get().draftSaving) throw new Error('저장이 끝난 뒤 다시 시도해 주세요.')
+        return revision
+      } catch (error) {
+        if (isWorkspaceConflict(error)) set({ conflict: true, error: WORKSPACE_CONFLICT_MESSAGE })
+        throw error
+      }
+    },
     commit: async (update) => {
       if (!get().ready) throw new Error('작업 공간을 먼저 불러와 주세요.')
+      if (get().conflict) throw new WorkspaceConflictError()
       if (get().busy) throw new Error('저장 중입니다. 잠시 후 다시 시도해 주세요.')
       set({ busy: true, error: '' })
       try {
         // A normal edit must use the last persisted draft, never race its writes.
         await draftWrites
+        if (get().conflict) throw new WorkspaceConflictError()
         const next = update(structuredClone(get().workspace))
         next.library = strictLibrary(next.library)
         next.options = normalizeSettingsOptions(next.options)
@@ -190,20 +264,23 @@ export function createPixaiStore(
         const text = JSON.stringify(next)
         try {
           await storage.write(text)
-        } catch {
+        } catch (error) {
+          if (isWorkspaceConflict(error)) throw error
           throw new Error(
             '저장하지 못했습니다. 변경 사항은 적용되지 않았습니다. 다시 시도해 주세요.'
           )
         }
         set({ workspace: next, revision: get().revision + 1 })
       } catch (error) {
-        set({ error: error instanceof Error ? error.message : '변경을 적용하지 못했습니다.' })
+        if (isWorkspaceConflict(error)) set({ conflict: true, error: WORKSPACE_CONFLICT_MESSAGE })
+        else set({ error: error instanceof Error ? error.message : '변경을 적용하지 못했습니다.' })
         throw error
       } finally {
         set({ busy: false })
       }
     },
     saveDraft: (value) => {
+      if (get().conflict) return Promise.reject(new WorkspaceConflictError())
       if (!get().ready || get().busy)
         return Promise.reject(new Error('저장이 끝난 뒤 다시 변경해 주세요.'))
       const draft = readComposeDraft(value)
@@ -215,8 +292,15 @@ export function createPixaiStore(
       const write = draftWrites
         .catch(() => {})
         .then(async () => {
+          if (get().conflict) throw new WorkspaceConflictError()
           const next = structuredClone(get().workspace)
-          await storage.write(JSON.stringify(next))
+          try {
+            await storage.write(JSON.stringify(next))
+          } catch (error) {
+            if (isWorkspaceConflict(error))
+              set({ conflict: true, error: WORKSPACE_CONFLICT_MESSAGE })
+            throw error
+          }
           savedDraft = next.composeDraft
         })
       draftWrites = write
@@ -224,13 +308,17 @@ export function createPixaiStore(
         () => {
           if (sequence === draftSequence) set({ draftSaving: false, revision: get().revision + 1 })
         },
-        () => {
+        (error) => {
           if (sequence === draftSequence)
             set({
-              workspace: { ...get().workspace, composeDraft: savedDraft },
+              workspace: get().conflict
+                ? get().workspace
+                : { ...get().workspace, composeDraft: savedDraft },
               draftSaving: false,
               error:
-                '조합 선택을 저장하지 못했습니다. 마지막 저장 상태를 유지합니다. 다시 시도해 주세요.'
+                get().conflict || isWorkspaceConflict(error)
+                  ? WORKSPACE_CONFLICT_MESSAGE
+                  : '조합 선택을 저장하지 못했습니다. 마지막 저장 상태를 유지합니다. 다시 시도해 주세요.'
             })
           // Keep the failure visible but allow a later explicit edit to retry.
           if (sequence === draftSequence) draftWrites = Promise.resolve()

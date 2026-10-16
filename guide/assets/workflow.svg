@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="540" viewBox="0 0 1120 540" role="img" aria-labelledby="title desc">
+  <title id="title">PixaiClackHelper 사용 흐름</title>
+  <desc id="desc">공통문, 모델과 LoRA 프리셋, 캐릭터, 청크를 준비하고 조합 예약을 만든 뒤 대기열에 등록합니다. 대기열에서 시작하고 유료 생성을 확인해야 실제 생성과 자동 저장이 진행됩니다. 씬은 청크 조합을 저장하여 여러 캐릭터에 반복 사용하는 기능입니다.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M2 1l6 4-6 4" fill="none" stroke="#819b98" stroke-width="2"/></marker>
+  </defs>
+  <rect width="1120" height="540" rx="24" fill="#f3f7f5"/>
+  <g font-family="'Malgun Gothic','Noto Sans KR',sans-serif" fill="#183c37">
+    <text x="40" y="55" font-size="27" font-weight="700">재료를 모아, 원하는 조합으로 생성하기</text>
+    <text x="40" y="85" font-size="16" fill="#546c67">예약은 준비 단계입니다. 실제 생성은 대기열에서 시작합니다.</text>
+    <rect x="40" y="115" width="1040" height="122" rx="16" fill="#ffffff" stroke="#d4e1db"/>
+    <text x="62" y="146" font-size="17" font-weight="700">1. 라이브러리에 재료 준비</text>
+    <g font-size="17" text-anchor="middle">
+      <rect x="62" y="165" width="200" height="48" rx="10" fill="#e9f0ed"/><text x="162" y="195">공통문 · 품질 / 화풍</text>
+      <rect x="278" y="165" width="266" height="48" rx="10" fill="#e9f0ed"/><text x="411" y="195">프리셋 · 모델 / LoRA</text>
+      <rect x="560" y="165" width="220" height="48" rx="10" fill="#e9f0ed"/><text x="670" y="195">캐릭터 · 외형 / 의상</text>
+      <rect x="796" y="165" width="262" height="48" rx="10" fill="#e9f0ed"/><text x="927" y="195">청크 · 표정 / 행동 / 배경</text>
+    </g>
+    <path d="M560 239v24H198v21" fill="none" stroke="#819b98" stroke-width="2" marker-end="url(#arrow)"/>
+    <g>
+      <rect x="40" y="294" width="302" height="126" rx="16" fill="#ffffff" stroke="#d4e1db"/>
+      <text x="62" y="327" font-size="19" font-weight="700">2. 조합 예약</text>
+      <text x="62" y="357" font-size="16">재료 + 비율 · 모드 · 장수 선택</text>
+      <text x="62" y="390" font-size="16" fill="#376b61">「이 조합 예약 추가」</text>
+      <path d="M353 357h28" stroke="#819b98" stroke-width="2" marker-end="url(#arrow)"/>
+      <rect x="394" y="294" width="302" height="126" rx="16" fill="#ffffff" stroke="#d4e1db"/>
+      <text x="416" y="327" font-size="19" font-weight="700">3. 대기열에 등록</text>
+      <text x="416" y="357" font-size="16">예약을 실행 대기 작업으로 변환</text>
+      <text x="416" y="390" font-size="16" fill="#376b61">「대기열에 등록 →」</text>
+      <path d="M708 357h28" stroke="#819b98" stroke-width="2" marker-end="url(#arrow)"/>
+      <rect x="748" y="294" width="332" height="126" rx="16" fill="#1b6656"/>
+      <text x="770" y="327" font-size="19" font-weight="700" fill="#ffffff">4. 시작 · 생성 · 자동 저장</text>
+      <text x="770" y="357" font-size="16" fill="#e4f3ed">「시작·저장 재개」 → 비용 확인</text>
+      <text x="770" y="390" font-size="16" fill="#fff1bd">이 단계에서 API 크레딧 사용</text>
+    </g>
+    <rect x="40" y="444" width="1040" height="61" rx="12" fill="#e1ebe5"/>
+    <text x="62" y="481" font-size="17"><tspan font-weight="700">여러 캐릭터를 한 번에?</tspan><tspan dx="12">청크 조합을 씬으로 저장 → 캐릭터 × 씬 선택 → 조합별로 예약</tspan></text>
+  </g>
+</svg>

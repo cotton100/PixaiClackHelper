@@ -2,9 +2,11 @@
 
 이 저장소는 NAIS3의 GPL-3.0 포크입니다. PixAI 공식 API로 **재료 편집·스크립트 백업 호환·여러 캐릭터 × 여러 씬 예약·1장/4장 생성·원본 자동 저장**을 지원하는 Windows 초기 버전입니다. PixAI와 제휴하지 않은 비공식 도구이며 API 키와 사용 크레딧이 필요합니다.
 
-Windows 설치 파일은 [최신 출시](https://github.com/cotton100/PixaiClackHelper/releases/latest)에서 받으세요. 기존 PixAIS 사용자는 0.1.4를 한 번 직접 설치하면 이후 앱 안에서 업데이트할 수 있습니다.
+Windows 설치 파일은 [최신 출시](https://github.com/cotton100/PixaiClackHelper/releases/latest)에서 받으세요. 오래된 PixAIS에서 업데이트 목록을 읽지 못하면 최신 정식 설치 파일로 한 번 업데이트해 주세요.
 
-사용 순서와 개발 실행 방법은 [PixaiClackHelper 안내](PIXAIS.md)를 참고하세요. PixAIS는 별도 앱·자료 폴더를 사용합니다. 아래는 원작 NAIS3의 소개와 저작자 안내이며, 아래 기능이 모두 PixAI에서 동작한다는 뜻은 아닙니다.
+처음 사용한다면 [그림 사용설명서](GUIDE.md)에서 설치부터 첫 생성·씬 예약·백업까지 따라 해 보세요.
+
+사용 순서와 개발 실행 방법은 [PixaiClackHelper 안내](PIXAIS.md)를 참고하세요. PixaiClackHelper는 원작 NAIS3와 별도 앱·자료 폴더를 사용합니다. 아래는 원작 NAIS3의 소개와 저작자 안내이며, 아래 기능이 모두 PixAI에서 동작한다는 뜻은 아닙니다.
 
 ### PixaiClackHelper 브랜치
 

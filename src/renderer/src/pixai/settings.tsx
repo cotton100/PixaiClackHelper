@@ -24,7 +24,7 @@ export function BackupSettings({
   store: PixaiStore
   onImport: () => void
 }): React.JSX.Element {
-  const { workspace, busy, revision } = store()
+  const { workspace, busy, revision, conflict } = store()
   const [preview, setPreview] = useState<{ transfer: TransferBackup; revision: number } | null>(
     null
   )
@@ -135,146 +135,148 @@ export function BackupSettings({
   }
   return (
     <div className="px-settings">
-      <ApiConnection />
-      <AppUpdates />
-      <section className="px-pane">
-        <h2>백업 가져오기</h2>
-        <p>
-          앱의 선택 백업과 기존 앱·스크립트 백업을 읽을 수 있습니다. 파일을 골라도 바로 적용되지는
-          않습니다.
-        </p>
-        <label className="px-file">
-          <Upload size={18} />
-          설정 백업 파일 선택
-          <input
-            type="file"
-            accept=".json,application/json"
-            aria-label="설정 백업 파일"
-            disabled={busy}
-            onChange={(event) => {
-              void readFile(event.target.files?.[0])
-              event.target.value = ''
-            }}
-          />
-        </label>
-        {preview && (
-          <div className="px-confirm">
-            <h3>가져올 자료</h3>
-            <BackupPicker
-              library={preview.transfer.backup.library}
-              value={importSelection}
-              onChange={setImportSelection}
-              available={available}
+      <fieldset className="px-settings-mutations" disabled={conflict}>
+        <ApiConnection />
+        <AppUpdates />
+        <section className="px-pane">
+          <h2>백업 가져오기</h2>
+          <p>
+            앱의 선택 백업과 기존 앱·스크립트 백업을 읽을 수 있습니다. 파일을 골라도 바로 적용되지는
+            않습니다.
+          </p>
+          <label className="px-file">
+            <Upload size={18} />
+            설정 백업 파일 선택
+            <input
+              type="file"
+              accept=".json,application/json"
+              aria-label="설정 백업 파일"
               disabled={busy}
-            />
-            <fieldset className="px-backup-picker" disabled={busy}>
-              <legend>가져오기 방식</legend>
-              <label className="px-check">
-                <input
-                  type="radio"
-                  name="backup-mode"
-                  checked={mode === 'append'}
-                  onChange={() => setMode('append')}
-                />
-                기존 자료에 추가
-              </label>
-              <label className="px-check">
-                <input
-                  type="radio"
-                  name="backup-mode"
-                  checked={mode === 'replace'}
-                  onChange={() => setMode('replace')}
-                />
-                선택한 항목만 교체
-              </label>
-            </fieldset>
-            <p>
-              {mode === 'append'
-                ? '같은 이름도 새 자료로 추가합니다. 원래 자료는 덮어쓰지 않습니다.'
-                : '체크한 종류의 목록 전체와 해당 폴더를 교체합니다. 체크하지 않은 종류는 유지합니다.'}{' '}
-              등록된 대기 작업은 유지합니다.
-            </p>
-            {mode === 'replace' && (
-              <p className="px-backup-warning">
-                교체 범위:{' '}
-                {Object.keys(importSelection)
-                  .filter((key) => importSelection[key as keyof typeof importSelection])
-                  .map((key) => BACKUP_LABELS[key as keyof typeof importSelection])
-                  .join(' · ') || '없음'}
-                . 0개인 항목을 체크하면 해당 목록을 비웁니다.
-              </p>
-            )}
-            {importSelection.options && (
-              <p className="px-backup-warning">
-                생성·화면 설정은 선택한 방식에 관계없이 파일의 설정으로 교체합니다. API 키와 이미지
-                저장 폴더는 변경하지 않습니다.
-              </p>
-            )}
-            {importResult?.value && (
-              <>
-                <dl className="px-backup-summary" aria-label="적용 후 자료 수">
-                  {BACKUP_CATEGORIES.filter(
-                    (key) => importSelection[key] || importResult.value!.dependencies[key]
-                  ).map((key) => (
-                    <div key={key}>
-                      <dt>
-                        {BACKUP_LABELS[key]}
-                        {!importSelection[key] && ' (연결 자료)'}
-                      </dt>
-                      <dd>
-                        {workspace.library[key]?.length ?? 0}개 →{' '}
-                        {importResult.value!.library[key]?.length ?? 0}개
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
-                <p>
-                  연결 때문에 함께 추가하는 자료:{' '}
-                  {Object.entries(importResult.value.dependencies)
-                    .map(
-                      ([key, count]) =>
-                        `${BACKUP_LABELS[key as keyof typeof importSelection]} ${count}개`
-                    )
-                    .join(' · ') || '없음'}
-                </p>
-                {importResult.value.warnings.map((message) => (
-                  <p className="px-backup-warning" key={message}>
-                    {message}
-                  </p>
-                ))}
-              </>
-            )}
-            {importResult?.error && (
-              <p role="alert" className="px-error">
-                {importResult.error}
-              </p>
-            )}
-            {revision !== preview.revision && (
-              <p className="px-error">
-                미리보기 후 자료가 바뀌었습니다. 파일을 다시 선택해 주세요.
-              </p>
-            )}
-            <button
-              className="px-primary"
-              disabled={busy || revision !== preview.revision || !importResult?.value}
-              onClick={() => {
-                void store
-                  .getState()
-                  .importSelectedBackup(preview.transfer, importSelection, mode, preview.revision)
-                  .then(() => {
-                    setPreview(null)
-                    setNotice('설정 백업을 적용했습니다.')
-                    onImport()
-                  })
-                  .catch((error) => setNotice(error.message))
+              onChange={(event) => {
+                void readFile(event.target.files?.[0])
+                event.target.value = ''
               }}
-            >
-              확인한 백업 적용
-            </button>
-            <button onClick={() => setPreview(null)}>취소</button>
-          </div>
-        )}
-      </section>
+            />
+          </label>
+          {preview && (
+            <div className="px-confirm">
+              <h3>가져올 자료</h3>
+              <BackupPicker
+                library={preview.transfer.backup.library}
+                value={importSelection}
+                onChange={setImportSelection}
+                available={available}
+                disabled={busy}
+              />
+              <fieldset className="px-backup-picker" disabled={busy}>
+                <legend>가져오기 방식</legend>
+                <label className="px-check">
+                  <input
+                    type="radio"
+                    name="backup-mode"
+                    checked={mode === 'append'}
+                    onChange={() => setMode('append')}
+                  />
+                  기존 자료에 추가
+                </label>
+                <label className="px-check">
+                  <input
+                    type="radio"
+                    name="backup-mode"
+                    checked={mode === 'replace'}
+                    onChange={() => setMode('replace')}
+                  />
+                  선택한 항목만 교체
+                </label>
+              </fieldset>
+              <p>
+                {mode === 'append'
+                  ? '같은 이름도 새 자료로 추가합니다. 원래 자료는 덮어쓰지 않습니다.'
+                  : '체크한 종류의 목록 전체와 해당 폴더를 교체합니다. 체크하지 않은 종류는 유지합니다.'}{' '}
+                등록된 대기 작업은 유지합니다.
+              </p>
+              {mode === 'replace' && (
+                <p className="px-backup-warning">
+                  교체 범위:{' '}
+                  {Object.keys(importSelection)
+                    .filter((key) => importSelection[key as keyof typeof importSelection])
+                    .map((key) => BACKUP_LABELS[key as keyof typeof importSelection])
+                    .join(' · ') || '없음'}
+                  . 0개인 항목을 체크하면 해당 목록을 비웁니다.
+                </p>
+              )}
+              {importSelection.options && (
+                <p className="px-backup-warning">
+                  생성·화면 설정은 선택한 방식에 관계없이 파일의 설정으로 교체합니다. API 키와
+                  이미지 저장 폴더는 변경하지 않습니다.
+                </p>
+              )}
+              {importResult?.value && (
+                <>
+                  <dl className="px-backup-summary" aria-label="적용 후 자료 수">
+                    {BACKUP_CATEGORIES.filter(
+                      (key) => importSelection[key] || importResult.value!.dependencies[key]
+                    ).map((key) => (
+                      <div key={key}>
+                        <dt>
+                          {BACKUP_LABELS[key]}
+                          {!importSelection[key] && ' (연결 자료)'}
+                        </dt>
+                        <dd>
+                          {workspace.library[key]?.length ?? 0}개 →{' '}
+                          {importResult.value!.library[key]?.length ?? 0}개
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                  <p>
+                    연결 때문에 함께 추가하는 자료:{' '}
+                    {Object.entries(importResult.value.dependencies)
+                      .map(
+                        ([key, count]) =>
+                          `${BACKUP_LABELS[key as keyof typeof importSelection]} ${count}개`
+                      )
+                      .join(' · ') || '없음'}
+                  </p>
+                  {importResult.value.warnings.map((message) => (
+                    <p className="px-backup-warning" key={message}>
+                      {message}
+                    </p>
+                  ))}
+                </>
+              )}
+              {importResult?.error && (
+                <p role="alert" className="px-error">
+                  {importResult.error}
+                </p>
+              )}
+              {revision !== preview.revision && (
+                <p className="px-error">
+                  미리보기 후 자료가 바뀌었습니다. 파일을 다시 선택해 주세요.
+                </p>
+              )}
+              <button
+                className="px-primary"
+                disabled={busy || revision !== preview.revision || !importResult?.value}
+                onClick={() => {
+                  void store
+                    .getState()
+                    .importSelectedBackup(preview.transfer, importSelection, mode, preview.revision)
+                    .then(() => {
+                      setPreview(null)
+                      setNotice('설정 백업을 적용했습니다.')
+                      onImport()
+                    })
+                    .catch((error) => setNotice(error.message))
+                }}
+              >
+                확인한 백업 적용
+              </button>
+              <button onClick={() => setPreview(null)}>취소</button>
+            </div>
+          )}
+        </section>
+      </fieldset>
       <section className="px-pane">
         <h2>백업 내보내기</h2>
         <p>
