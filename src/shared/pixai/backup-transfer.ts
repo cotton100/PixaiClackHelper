@@ -28,6 +28,10 @@ export const BACKUP_CATEGORIES = [
 ] as const
 export type BackupCategory = (typeof BACKUP_CATEGORIES)[number]
 export type BackupSelection = Record<BackupCategory | 'common' | 'options', boolean>
+export const BACKUP_FOLDER_CATEGORIES = ['sceneCards', 'scenes'] as const
+export type BackupFolderCategory = (typeof BACKUP_FOLDER_CATEGORIES)[number]
+/** Omitted category means its whole list; an empty string selects unfiled materials. */
+export type BackupFolderSelection = Partial<Record<BackupFolderCategory, string[]>>
 export type ImportMode = 'append' | 'replace'
 export const BACKUP_LABELS: Record<keyof BackupSelection, string> = {
   sceneCards: '씬',
@@ -51,9 +55,71 @@ const COLLECTIONS = [...BACKUP_CATEGORIES, ...Object.values(FOLDERS)] as const
 type Collection = (typeof COLLECTIONS)[number]
 export interface TransferBackup {
   format: 'pixai-clack-helper-selection'
-  version: 1
+  version: 1 | 2
   selection: BackupSelection
+  folderSelection?: BackupFolderSelection
   backup: SettingsBackup
+}
+
+export function backupFolderChoices(
+  library: Library,
+  category: BackupFolderCategory
+): Array<{ id: string; name: string; count: number }> {
+  return [...(library[FOLDERS[category]] ?? []), { id: '', name: '미분류' }].map((folder) => ({
+    ...folder,
+    count: (library[category] ?? []).filter((item) => (item.folderId ?? '') === folder.id).length
+  }))
+}
+
+function validateFolderSelection(
+  value: BackupFolderSelection,
+  library: Library
+): BackupFolderSelection {
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new Error('백업 폴더 선택 범위를 확인해 주세요.')
+  const result: BackupFolderSelection = {}
+  for (const key of Object.keys(value)) {
+    if (!BACKUP_FOLDER_CATEGORIES.includes(key as BackupFolderCategory))
+      throw new Error('백업 폴더 선택 범위를 확인해 주세요.')
+    const category = key as BackupFolderCategory
+    const ids = value[category]
+    const allowed = new Set(backupFolderChoices(library, category).map((x) => x.id))
+    if (
+      !Array.isArray(ids) ||
+      ids.some((id) => typeof id !== 'string' || !allowed.has(id)) ||
+      new Set(ids).size !== ids.length
+    )
+      throw new Error('백업에 없는 폴더가 선택되어 있습니다. 폴더 선택을 다시 확인해 주세요.')
+    result[category] = [...ids]
+  }
+  return result
+}
+
+function isSelectedItem(
+  category: BackupCategory,
+  item: { folderId?: string },
+  selection: BackupSelection,
+  folders: BackupFolderSelection
+): boolean {
+  const scope = folders[category as BackupFolderCategory]
+  return selection[category] && (!scope || scope.includes(item.folderId ?? ''))
+}
+
+export function backupSelectionLabels(
+  library: Library,
+  selection: BackupSelection,
+  folders: BackupFolderSelection = {}
+): string[] {
+  return (Object.keys(selection) as Array<keyof BackupSelection>)
+    .filter((key) => selection[key])
+    .map((key) => {
+      const scope = folders[key as BackupFolderCategory]
+      if (!scope) return BACKUP_LABELS[key]
+      const names = backupFolderChoices(library, key as BackupFolderCategory)
+        .filter((folder) => scope.includes(folder.id))
+        .map((folder) => `${folder.name} (${folder.count}개)`)
+      return `${BACKUP_LABELS[key]}: ${names.join(', ') || '선택한 폴더 없음'}`
+    })
 }
 
 export function backupSelection(enabled = true): BackupSelection {
@@ -65,12 +131,14 @@ export function backupSelection(enabled = true): BackupSelection {
 /** Dependencies are copied, not made replacement targets. Folder order survives. */
 export function selectBackupLibrary(
   value: Library,
-  selection: BackupSelection
+  selection: BackupSelection,
+  folderSelection: BackupFolderSelection = {}
 ): {
   library: Library
   dependencies: Partial<Record<BackupCategory, number>>
 } {
   const source = strictLibrary(value)
+  const folders = validateFolderSelection(folderSelection, source)
   const ids = Object.fromEntries(COLLECTIONS.map((k) => [k, new Set<string>()])) as Record<
     Collection,
     Set<string>
@@ -86,9 +154,13 @@ export function selectBackupLibrary(
   }
   for (const key of BACKUP_CATEGORIES) {
     if (!selection[key]) continue
-    for (const item of source[key] ?? []) add(key, item.id)
+    for (const item of source[key] ?? [])
+      if (isSelectedItem(key, item as { folderId?: string }, selection, folders)) add(key, item.id)
     const folderKey = FOLDERS[key as keyof typeof FOLDERS]
-    if (folderKey) for (const folder of source[folderKey] ?? []) add(folderKey, folder.id)
+    const scope = folders[key as BackupFolderCategory]
+    if (folderKey)
+      for (const folder of source[folderKey] ?? [])
+        if (!scope || scope.includes(folder.id)) add(folderKey, folder.id)
   }
   for (let cursor = 0; cursor < pending.length; cursor++) {
     const [key, id] = pending[cursor]
@@ -133,7 +205,14 @@ export function selectBackupLibrary(
   if (selection.common || library.presets.some((x) => !x.commonPresetId) || selection.reservations)
     library.common = source.common
   const dependencies = Object.fromEntries(
-    BACKUP_CATEGORIES.filter((k) => !selection[k] && ids[k].size).map((k) => [k, ids[k].size])
+    BACKUP_CATEGORIES.map((key) => [
+      key,
+      (source[key] ?? []).filter(
+        (item) =>
+          ids[key].has(item.id) &&
+          !isSelectedItem(key, item as { folderId?: string }, selection, folders)
+      ).length
+    ]).filter(([, count]) => count)
   )
   return { library: strictLibrary(library), dependencies }
 }
@@ -142,15 +221,23 @@ export function makeTransferBackup(
   library: Library,
   options: SettingsOptions,
   selection: BackupSelection,
-  meta: { appVersion: string; exportedAt: string }
+  meta: { appVersion: string; exportedAt: string },
+  folderSelection: BackupFolderSelection = {}
 ): TransferBackup {
   if (!Object.values(selection).some(Boolean))
     throw new Error('백업할 항목을 하나 이상 선택해 주세요.')
-  const selected = selectBackupLibrary(library, selection).library
+  const folders = validateFolderSelection(folderSelection, library)
+  for (const category of BACKUP_FOLDER_CATEGORIES) {
+    if (!selection[category]) delete folders[category]
+    else if (folders[category]?.length === 0)
+      throw new Error(`${BACKUP_LABELS[category]}에서 폴더를 하나 이상 선택해 주세요.`)
+  }
+  const selected = selectBackupLibrary(library, selection, folders).library
   const result: TransferBackup = {
     format: 'pixai-clack-helper-selection',
-    version: 1,
+    version: Object.keys(folders).length ? 2 : 1,
     selection: { ...selection },
+    ...(Object.keys(folders).length ? { folderSelection: folders } : {}),
     backup: makeSettingsBackup(
       selected,
       selection.options ? options : { maxCredits: null, filePrefix: '', repeat: 1 },
@@ -182,8 +269,18 @@ export function parseTransferBackup(text: string): TransferBackup {
       backup: parseSettingsBackup(text)
     }
   if (
-    value.version !== 1 ||
-    Object.keys(value).some((k) => !['format', 'version', 'selection', 'backup'].includes(k))
+    (value.version !== 1 && value.version !== 2) ||
+    Object.keys(value).some(
+      (k) =>
+        ![
+          'format',
+          'version',
+          'selection',
+          'backup',
+          ...(value.version === 2 ? ['folderSelection'] : [])
+        ].includes(k)
+    ) ||
+    (value.version === 2 && !value.folderSelection)
   )
     throw new Error('지원하지 않는 선택 백업 형식입니다.')
   const selection = backupSelection(false)
@@ -196,11 +293,25 @@ export function parseTransferBackup(text: string): TransferBackup {
     Object.values(value.selection).some((v) => typeof v !== 'boolean')
   )
     throw new Error('백업 선택 범위를 확인해 주세요.')
+  const backup = parseSettingsBackup(JSON.stringify(value.backup))
+  const folders =
+    value.version === 2
+      ? validateFolderSelection(value.folderSelection!, backup.library)
+      : undefined
+  if (
+    folders &&
+    (Object.keys(folders).length === 0 ||
+      BACKUP_FOLDER_CATEGORIES.some(
+        (key) => folders[key] && (!value.selection![key] || folders[key]!.length === 0)
+      ))
+  )
+    throw new Error('백업 폴더 선택 범위를 확인해 주세요.')
   return {
     format: value.format,
-    version: 1,
+    version: value.version,
     selection: { ...value.selection },
-    backup: parseSettingsBackup(JSON.stringify(value.backup))
+    ...(folders ? { folderSelection: folders } : {}),
+    backup
   }
 }
 
@@ -228,7 +339,8 @@ export function prepareBackupImport(
   transfer: TransferBackup,
   selection: BackupSelection,
   mode: ImportMode,
-  idFactory: () => string = () => crypto.randomUUID()
+  idFactory: () => string = () => crypto.randomUUID(),
+  folderSelection: BackupFolderSelection = transfer.folderSelection ?? {}
 ): {
   library: Library
   options?: SettingsOptions
@@ -237,17 +349,35 @@ export function prepareBackupImport(
 } {
   if (!Object.values(selection).some(Boolean))
     throw new Error('가져올 항목을 하나 이상 선택해 주세요.')
-  const selected = selectBackupLibrary(transfer.backup.library, selection)
+  const folders = validateFolderSelection(
+    { ...transfer.folderSelection, ...folderSelection },
+    transfer.backup.library
+  )
+  for (const key of BACKUP_FOLDER_CATEGORIES) {
+    if (!selection[key]) continue
+    const limit = transfer.folderSelection?.[key]
+    if (
+      folders[key]?.length === 0 ||
+      (limit && folders[key]?.some((id) => !limit.includes(id))) ||
+      (transfer.version === 2 && !transfer.selection[key])
+    )
+      throw new Error(`${BACKUP_LABELS[key]}의 백업에 포함된 폴더를 하나 이상 선택해 주세요.`)
+  }
+  const selected = selectBackupLibrary(transfer.backup.library, selection, folders)
   const incoming = structuredClone(selected.library)
   const result = structuredClone(strictLibrary(current))
   const warnings: string[] = []
   // Folder collections follow their material category, including empty folders.
-  const replace = (key: Collection): boolean =>
-    mode === 'replace' &&
-    (selection[key as BackupCategory] ||
-      Object.entries(FOLDERS).some(
-        ([category, folder]) => folder === key && selection[category as BackupCategory]
-      ))
+  const replace = (key: Collection, item: { id: string; folderId?: string }): boolean => {
+    if (mode !== 'replace') return false
+    const category = Object.entries(FOLDERS).find(([, folder]) => folder === key)?.[0] as
+      BackupCategory | undefined
+    if (category) {
+      const scope = folders[category as BackupFolderCategory]
+      return selection[category] && (!scope || scope.includes(item.id))
+    }
+    return isSelectedItem(key as BackupCategory, item, selection, folders)
+  }
   if (
     mode === 'replace' &&
     !selection.reservations &&
@@ -256,6 +386,9 @@ export function prepareBackupImport(
     )
   )
     result.reservations = result.reservations.map((x) => freezeReservation(result, x))
+  const retained = Object.fromEntries(
+    COLLECTIONS.map((key) => [key, (result[key] ?? []).filter((item) => !replace(key, item))])
+  ) as { [K in Collection]: NonNullable<Library[K]> }
   const maps = Object.fromEntries(
     [...COLLECTIONS, 'batch'].map((k) => [k, new Map<string, string>()])
   ) as Record<Collection | 'batch', Map<string, string>>
@@ -274,7 +407,13 @@ export function prepareBackupImport(
     throw new Error('가져올 자료의 새 ID를 만들지 못했습니다.')
   }
   const remap = (key: Collection | 'batch', id: string): string => {
-    if (!maps[key].has(id)) maps[key].set(id, key !== 'batch' && replace(key) ? id : fresh())
+    if (!maps[key].has(id)) {
+      const item =
+        key === 'batch' ? undefined : (selected.library[key] ?? []).find((x) => x.id === id)
+      const keep =
+        key !== 'batch' && item && replace(key, item) && !retained[key].some((x) => x.id === id)
+      maps[key].set(id, keep ? id : fresh())
+    }
     return maps[key].get(id)!
   }
   for (const key of COLLECTIONS)
@@ -357,7 +496,7 @@ export function prepareBackupImport(
   }
   for (const key of COLLECTIONS)
     Object.assign(result, {
-      [key]: [...(replace(key) ? [] : (result[key] ?? [])), ...(incoming[key] ?? [])]
+      [key]: [...retained[key], ...(incoming[key] ?? [])]
     })
   result.commonPresets = [...(result.commonPresets ?? []), ...importedDefault]
   // A removed linked set cannot silently switch existing presets to the default.

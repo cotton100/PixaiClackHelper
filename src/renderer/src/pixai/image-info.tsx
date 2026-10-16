@@ -221,6 +221,13 @@ export function ImageInformation({
       <section className="px-pane">
         <h2>적용할 정보</h2>
         {!info && <p>이미지를 선택하면 출처별 기록이 여기에 표시됩니다.</p>}
+        {info && !info.sources.length && (
+          <p className="px-banner">
+            지원하는 생성 정보를 찾지 못했습니다. 원본에 기록이 없거나 읽지 못하는 형식일 수
+            있습니다. 앱에서 기록하려면 설정의 ‘PNG 안에 생성 요청 정보 기록’을 켜 주세요. 이후 새로
+            시작하는 PNG 작업부터 적용하며, 기존 파일에는 정보를 추가하지 않습니다.
+          </p>
+        )}
         {info?.warnings.map((warning) => (
           <p key={warning} className="px-muted">
             {warning}

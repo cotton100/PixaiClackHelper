@@ -114,6 +114,11 @@ export class PixaiRunner {
       ids.add(id)
       added.push({
         id,
+        ...(Number.isSafeInteger(input.registeredAt) &&
+        input.registeredAt! > 0 &&
+        input.registeredAt! <= Date.now()
+          ? { registeredAt: input.registeredAt }
+          : {}),
         title: String(input.request.title).slice(0, 300),
         payload: buildPayload(input, randomInt(0, 4294967296)),
         ...(input.request.composition.reservation.sourceSceneId !== undefined

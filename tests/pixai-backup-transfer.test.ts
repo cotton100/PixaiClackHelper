@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { pixaiLibrary } from './fixtures/pixai-workspace'
 import {
   backupSelection,
+  backupFolderChoices,
   makeTransferBackup,
   parseTransferBackup,
   prepareBackupImport,
@@ -40,7 +41,149 @@ const plan: BatchPlan = {
   order: 'byColumn'
 }
 
+function folderLibrary(): ReturnType<typeof pixaiLibrary> {
+  const library = pixaiLibrary()
+  library.chunkFolders = [
+    { id: 'f1', name: '표정' },
+    { id: 'f2', name: '동작' },
+    { id: 'empty', name: '빈 폴더' }
+  ]
+  library.sceneFolders = [
+    { id: 'sf1', name: '첫 씬' },
+    { id: 'sf2', name: '다른 씬' }
+  ]
+  library.scenes[0].folderId = 'f1'
+  library.scenes[1].folderId = 'f2'
+  library.sceneCards![0].folderId = 'sf1'
+  library.sceneCards![1].folderId = 'sf2'
+  return library
+}
+
 describe('selective backups and isolated imports', () => {
+  it('exports chosen folders and unfiled items with counts, keeping empty selected folders', () => {
+    const source = folderLibrary()
+    expect(backupFolderChoices(source, 'scenes')).toEqual([
+      { id: 'f1', name: '표정', count: 1 },
+      { id: 'f2', name: '동작', count: 1 },
+      { id: 'empty', name: '빈 폴더', count: 0 },
+      { id: '', name: '미분류', count: 1 }
+    ])
+    const file = makeTransferBackup(source, options, select('scenes'), meta, {
+      scenes: ['f1', 'empty', '']
+    })
+    expect(file.version).toBe(2)
+    expect(file.backup.library.scenes.map((x) => x.id)).toEqual(['s1', 's3'])
+    expect(file.backup.library.chunkFolders.map((x) => x.id)).toEqual(['f1', 'empty'])
+    expect(parseTransferBackup(JSON.stringify(file))).toEqual(file)
+    expect(makeTransferBackup(source, options, select('scenes'), meta).version).toBe(1)
+  })
+
+  it('replaces only the selected folder, even when the file also carries dependency chunks', () => {
+    const source = folderLibrary()
+    source.scenes[0].prompt = 'changed smile'
+    source.sceneCards![0].sceneIds = ['s2']
+    source.sceneCards![0].chunks = [{ ...source.scenes[1], folderId: undefined }]
+    delete source.sceneCards![0].chunks[0].folderId
+    const selection = select('scenes', 'sceneCards')
+    const scopes = { scenes: ['f1'], sceneCards: ['sf1'] }
+    const file = makeTransferBackup(source, options, selection, meta, scopes)
+    expect(selectBackupLibrary(source, selection, scopes).dependencies).toEqual({ scenes: 1 })
+    const original = folderLibrary()
+    const result = prepareBackupImport(original, file, selection, 'replace', ids())
+    expect(result.library.scenes.find((x) => x.id === 's1')?.prompt).toBe('changed smile')
+    expect(result.library.scenes.find((x) => x.id === 's2')).toEqual(original.scenes[1])
+    expect(result.library.scenes.find((x) => x.id === 's3')).toEqual(original.scenes[2])
+    expect(result.library.sceneCards!.find((x) => x.id === 'sc2')).toEqual(original.sceneCards![1])
+    expect(result.library.sceneCards!.find((x) => x.id === 'sc3')).toEqual(original.sceneCards![2])
+    expect(result.library.chunkFolders.find((x) => x.id === 'f2')).toEqual(original.chunkFolders[1])
+    const importedCard = result.library.sceneCards!.find((x) => x.id === 'sc1')!
+    expect(importedCard.sceneIds[0]).not.toBe('s2')
+    expect(result.library.scenes.find((x) => x.id === importedCard.sceneIds[0])?.prompt).toBe(
+      'wave'
+    )
+    expect(result.dependencies).toEqual({ scenes: 1 })
+    expect(result.library.scenes).toHaveLength(4)
+    expect(original).toEqual(folderLibrary())
+  })
+
+  it('clears an explicitly selected empty folder while preserving all other folders and materials', () => {
+    const source = folderLibrary()
+    source.scenes = source.scenes.filter((x) => x.folderId !== 'f1')
+    const file = makeTransferBackup(source, options, select('scenes'), meta, { scenes: ['f1'] })
+    const original = folderLibrary()
+    const result = prepareBackupImport(original, file, select('scenes'), 'replace', ids()).library
+    expect(result.scenes).toEqual(original.scenes.slice(1))
+    expect(result.chunkFolders).toContainEqual(original.chunkFolders[0])
+    expect(result.chunkFolders).toHaveLength(3)
+    expect(result.sceneCards).toEqual(original.sceneCards)
+  })
+
+  it('replaces unfiled materials only and permits narrowing old whole-category backups', () => {
+    const source = folderLibrary()
+    source.scenes[2].prompt = 'new unfiled'
+    const original = folderLibrary()
+    const file = makeTransferBackup(source, options, select('scenes'), meta)
+    const result = prepareBackupImport(original, file, select('scenes'), 'replace', ids(), {
+      scenes: ['']
+    }).library
+    expect(result.scenes.slice(0, 2)).toEqual(original.scenes.slice(0, 2))
+    expect(result.scenes[2].prompt).toBe('new unfiled')
+    expect(result.chunkFolders).toEqual(original.chunkFolders)
+  })
+
+  it('allocates new IDs for incoming selected items that collide with retained materials', () => {
+    const source = folderLibrary()
+    source.scenes[0].prompt = 'incoming'
+    const original = folderLibrary()
+    original.scenes[0].folderId = 'f2'
+    const file = makeTransferBackup(source, options, select('scenes'), meta, { scenes: ['f1'] })
+    const result = prepareBackupImport(original, file, select('scenes'), 'replace', ids()).library
+    expect(result.scenes.find((x) => x.id === 's1')).toEqual(original.scenes[0])
+    expect(result.scenes.find((x) => x.prompt === 'incoming')?.id).not.toBe('s1')
+    expect(result.scenes).toHaveLength(4)
+  })
+
+  it('appends chosen folder copies without changing same-name or same-ID originals', () => {
+    const source = folderLibrary()
+    const file = makeTransferBackup(source, options, select('sceneCards'), meta, {
+      sceneCards: ['sf1']
+    })
+    const result = prepareBackupImport(source, file, select('sceneCards'), 'append', ids()).library
+    expect(result.sceneCards!.slice(0, 3)).toEqual(source.sceneCards)
+    expect(result.sceneFolders!.slice(0, 2)).toEqual(source.sceneFolders)
+    expect(result.sceneCards![3].folderId).not.toBe('sf1')
+    expect(result.sceneFolders![2].id).toBe(result.sceneCards![3].folderId)
+    expect(result.scenes).toHaveLength(4)
+  })
+
+  it('rejects unknown/empty scopes and prevents widening a partial backup into replacement', () => {
+    const source = folderLibrary()
+    const selection = select('scenes')
+    const file = makeTransferBackup(source, options, selection, meta, { scenes: ['f1'] })
+    expect(() => makeTransferBackup(source, options, selection, meta, { scenes: [] })).toThrow(
+      '폴더'
+    )
+    expect(() =>
+      makeTransferBackup(source, options, selection, meta, { scenes: ['missing'] })
+    ).toThrow('폴더')
+    expect(() => parseTransferBackup(JSON.stringify({ ...file, version: 1 }))).toThrow('형식')
+    expect(() =>
+      parseTransferBackup(JSON.stringify({ ...file, folderSelection: { scenes: [] } }))
+    ).toThrow('폴더')
+    expect(() =>
+      parseTransferBackup(JSON.stringify({ ...file, folderSelection: { scenes: ['f1', 'f1'] } }))
+    ).toThrow('폴더')
+    expect(() =>
+      prepareBackupImport(source, file, selection, 'replace', ids(), { scenes: [''] })
+    ).toThrow('폴더')
+    const sceneFile = makeTransferBackup(source, options, select('sceneCards'), meta, {
+      sceneCards: ['sf1']
+    })
+    expect(() =>
+      prepareBackupImport(source, sceneFile, select('scenes'), 'replace', ids())
+    ).toThrow('폴더')
+  })
+
   it('exports scenes with their edited snapshots, needed live chunks and folder order only', () => {
     const library = pixaiLibrary()
     library.sceneCards = library.sceneCards!.slice(0, 1)

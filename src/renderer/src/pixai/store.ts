@@ -22,11 +22,13 @@ import {
   prepareBackupImport,
   type TransferBackup,
   type BackupSelection,
+  type BackupFolderSelection,
   type ImportMode
 } from '@shared/pixai/backup-transfer'
 
 export const WORKSPACE_KEY = 'pixais.workspace.v1'
 export interface QueuedJob {
+  registeredAt?: number
   request: ExpandedRequest
   imageCount: number
   options: SettingsOptions
@@ -101,6 +103,11 @@ export function readWorkspace(text: string | null): Workspace {
         composition: { ...rebuilt.composition, reservation: { ...reservation, repeat } }
       },
       imageCount: job.imageCount,
+      ...(Number.isSafeInteger(job.registeredAt) &&
+      job.registeredAt! > 0 &&
+      job.registeredAt! <= 8640000000000000
+        ? { registeredAt: job.registeredAt }
+        : {}),
       options: normalizeSettingsOptions(job.options ?? raw.options)
     }
   })
@@ -143,7 +150,8 @@ interface PixaiState {
     backup: TransferBackup,
     selection: BackupSelection,
     mode: ImportMode,
-    expectedRevision: number
+    expectedRevision: number,
+    folderSelection?: BackupFolderSelection
   ): Promise<void>
   reserve(plan: BatchPlan, registerNow?: boolean): Promise<BatchExpansion>
   register(): Promise<void>
@@ -339,11 +347,18 @@ export function createPixaiStore(
           composeDraft: undefined
         }
       }),
-    importSelectedBackup: (backup, selection, mode, expectedRevision) =>
+    importSelectedBackup: (backup, selection, mode, expectedRevision, folderSelection) =>
       get().commit((workspace) => {
         if (get().revision !== expectedRevision)
           throw new Error('미리보기 후 자료가 바뀌었습니다. 파일을 다시 골라 확인해 주세요.')
-        const imported = prepareBackupImport(workspace.library, backup, selection, mode)
+        const imported = prepareBackupImport(
+          workspace.library,
+          backup,
+          selection,
+          mode,
+          undefined,
+          folderSelection
+        )
         if (
           workspace.jobs.length + imported.library.reservations.reduce((n, r) => n + r.count, 0) >
           1000
@@ -459,6 +474,7 @@ function registerWorkspace(workspace: Workspace, ids?: string[]): Workspace {
       chunks: material.chunks
     }
   }
+  const registeredAt = Date.now()
   return {
     ...workspace,
     library: {
@@ -469,6 +485,7 @@ function registerWorkspace(workspace: Workspace, ids?: string[]): Workspace {
       ...workspace.jobs,
       ...jobs.map((request) => ({
         request,
+        registeredAt,
         imageCount: request.imageOptions?.batchSize ?? workspace.options.imageCount ?? 0,
         options: structuredClone(workspace.options)
       }))

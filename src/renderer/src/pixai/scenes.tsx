@@ -2,9 +2,10 @@ import { MaterialPreview } from './material-preview'
 import { useUnsavedNavigation } from './unsaved-navigation'
 import { RatioMark } from './ratio-mark'
 import { useEffect, useState } from 'react'
+import { useDroppable } from '@dnd-kit/core'
 import { SceneThumbnailView } from './scene-thumbnails'
 import { useSceneThumbnails } from './use-scene-thumbnails'
-import { Copy, FolderPlus, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { Copy, Eye, FolderPlus, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import {
   batchCellKey,
   batchRowKey,
@@ -33,6 +34,15 @@ import {
 import { savePaneUI, type PixaiStore } from './store'
 import { ChunkList } from './chunk-list'
 import { resolveImageOptions } from '@shared/pixai/generation-options'
+import {
+  draggedSceneIds,
+  moveSceneCards,
+  removeSceneFolder,
+  renameSceneFolder,
+  selectSceneColumns,
+  selectSceneRows
+} from './scene-actions'
+import './scene-folders.css'
 
 const newPlan = (): BatchPlan => ({
   id: crypto.randomUUID(),
@@ -82,6 +92,9 @@ export function Scenes({
   const [planId, setPlanId] = useState('')
   const [folderName, setFolderName] = useState('')
   const [showFolder, setShowFolder] = useState(false)
+  const [renameFolderId, setRenameFolderId] = useState('')
+  const [renameFolderName, setRenameFolderName] = useState('')
+  const [removeFolderId, setRemoveFolderId] = useState('')
   const [removeId, setRemoveId] = useState('')
   const cards = library.sceneCards ?? []
   const rows: BatchRow[] = [
@@ -196,6 +209,41 @@ export function Scenes({
         ? current.sceneCards!.map((item) => (item.id === card.id ? card : item))
         : [...(current.sceneCards ?? []), card]
     }))
+  }
+  function moveCards(ids: string[], target: string): void {
+    if (busy || !ids.length) return
+    const action = (): void => {
+      void run(
+        async () => {
+          await store.getState().editLibrary((current) => moveSceneCards(current, ids, target))
+          if (ids.includes(editId)) {
+            setEditId('')
+            setRefresh(null)
+          }
+        },
+        `${ids.length}개 씬을 ${library.sceneFolders?.find((item) => item.id === target)?.name ?? '미분류'}로 옮겼습니다.`
+      )
+    }
+    if (ids.includes(editId)) guard.request(action)
+    else action()
+  }
+  function deleteFolder(id: string): void {
+    const affectsEditor =
+      cards.find((card) => card.id === editId)?.folderId === id || creating?.folderId === id
+    const action = (): void => {
+      void run(async () => {
+        await store.getState().editLibrary((current) => removeSceneFolder(current, id))
+        if (affectsEditor) {
+          setEditId('')
+          setCreating(null)
+          setRefresh(null)
+        }
+        if (folder === id) setFolder('')
+        setRemoveFolderId('')
+      }, '씬 그룹을 삭제했습니다. 안의 씬은 미분류에 보관됩니다.')
+    }
+    if (affectsEditor) guard.request(action)
+    else action()
   }
   async function reserve(register = false): Promise<void> {
     if (saving || busy) return
@@ -344,6 +392,10 @@ export function Scenes({
                 folders={library.characterFolders ?? []}
                 label="캐릭터"
                 search={rowSearch}
+                selectedIds={plan.rows.map(batchRowKey)}
+                onSelectionChange={(ids) =>
+                  setPlan((current) => selectSceneRows(current, rows, ids))
+                }
                 render={(item) =>
                   plan.rows.some((row) => batchRowKey(row) === item.id) ? null : renderRow(item)
                 }
@@ -360,35 +412,41 @@ export function Scenes({
         <section className="px-pane" aria-label="어떤 장면">
           <header>
             <h2>2. 씬 선택</h2>
-            <span>{plan.columns.length}씬 선택</span>
+            <span>
+              {plan.columns.length}씬 선택 · 목록 {visibleCards.length}개
+            </span>
           </header>
-          <small
-            className="px-scene-help"
-            title="씬은 표정·행동 청크와 문구를 묶은 장면입니다. 체크하면 각 캐릭터마다 별도 생성합니다."
-          >
-            캐릭터 × 씬, 쌍마다 별도 생성
-          </small>
           <div className="px-scene-tools">
-            <button
-              className="px-primary"
-              disabled={busy}
-              onClick={() =>
-                guard.request(() => {
-                  setEditorTab('chunks')
-                  setCreating({
-                    id: crypto.randomUUID(),
-                    name: '',
-                    sceneIds: [],
-                    chunks: [],
-                    ...(folder !== 'all' && folder ? { folderId: folder } : {})
+            <div className="px-scene-create-tools px-button-pair">
+              <button
+                className="px-primary"
+                disabled={busy}
+                onClick={() =>
+                  guard.request(() => {
+                    setEditorTab('chunks')
+                    setCreating({
+                      id: crypto.randomUUID(),
+                      name: '',
+                      sceneIds: [],
+                      chunks: [],
+                      ...(folder !== 'all' && folder ? { folderId: folder } : {})
+                    })
+                    setEditId('')
+                    setRefresh(null)
                   })
-                  setEditId('')
-                  setRefresh(null)
-                })
-              }
-            >
-              <Plus size={16} />새 씬 만들기
-            </button>{' '}
+                }
+              >
+                <Plus size={16} />새 씬 만들기
+              </button>
+              <button
+                aria-label="새 씬 그룹"
+                disabled={busy}
+                onClick={() => setShowFolder(!showFolder)}
+              >
+                <FolderPlus size={18} />
+                그룹 만들기
+              </button>
+            </div>
             <div className="px-toolbar" aria-label="씬 보기 방식">
               <button aria-pressed={sceneView === 'grid'} onClick={() => setSceneView('grid')}>
                 격자
@@ -398,65 +456,13 @@ export function Scenes({
               </button>
             </div>
           </div>
-          <div className="px-inline">
+          <div className="px-inline px-scene-search-row">
             <input
               aria-label="씬 검색"
               placeholder="씬 검색"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
-            <button aria-label="새 씬 그룹" onClick={() => setShowFolder(!showFolder)}>
-              <FolderPlus size={18} />
-              그룹 만들기
-            </button>
-          </div>
-          <div className="px-group-chips" aria-label="씬 그룹 필터">
-            {[
-              { id: 'all', name: '모든 씬 그룹' },
-              ...(library.sceneFolders ?? []),
-              { id: '', name: '미분류' }
-            ].map((group) => (
-              <button
-                key={group.id}
-                aria-pressed={folder === group.id}
-                onClick={() => setFolder(group.id)}
-              >
-                {group.name}{' '}
-                <small>
-                  {
-                    cards.filter((card) => group.id === 'all' || (card.folderId ?? '') === group.id)
-                      .length
-                  }
-                </small>
-              </button>
-            ))}
-          </div>
-          {showFolder && (
-            <form
-              className="px-inline"
-              onSubmit={(event) => {
-                event.preventDefault()
-                if (!folderName.trim()) return
-                void run(async () => {
-                  const id = crypto.randomUUID()
-                  await store.getState().editLibrary((current) => ({
-                    ...current,
-                    sceneFolders: [...(current.sceneFolders ?? []), { id, name: folderName.trim() }]
-                  }))
-                  setFolderName('')
-                  setShowFolder(false)
-                })
-              }}
-            >
-              <input
-                aria-label="새 씬 그룹 이름"
-                value={folderName}
-                onChange={(event) => setFolderName(event.target.value)}
-              />
-              <button disabled={busy}>만들기</button>
-            </form>
-          )}
-          <div className="px-toolbar">
             <button
               onClick={() =>
                 setPlan({
@@ -468,15 +474,165 @@ export function Scenes({
               씬 전체 선택
             </button>
             <button onClick={() => setPlan({ ...plan, columns: [] })}>씬 선택 해제</button>
-            <small>현재 목록 {visibleCards.length}개</small>
           </div>
-          <div className="px-scroll">
-            <div className={'px-scene-collection is-' + sceneView}>
-              <SortableItems
-                grid={sceneView === 'grid'}
-                ids={plan.columns}
-                onReorder={(columns) => setPlan({ ...plan, columns })}
+          <small
+            className="px-scene-help"
+            title="씬은 표정·행동 청크와 문구를 묶은 장면입니다. 체크하면 각 캐릭터마다 별도 생성합니다."
+          >
+            캐릭터 × 씬 쌍마다 별도 생성 · 그룹 체크 = 안의 씬 전체 선택 · 그룹 이름 = 보기 필터
+          </small>
+          <SortableItems
+            grid={sceneView === 'grid'}
+            ids={plan.columns}
+            onReorder={(columns) => setPlan((current) => ({ ...current, columns }))}
+            dragLabel={(id) => `${draggedSceneIds(id, plan.columns, cards).length}개 씬 이동`}
+            onDrop={(id, target) => {
+              if (!target.startsWith('scene-folder:')) return false
+              moveCards(draggedSceneIds(id, plan.columns, cards), target.slice(13))
+              return true
+            }}
+          >
+            <div className="px-scene-folder-list" aria-label="씬 그룹 필터·선택">
+              {[
+                { id: 'all', name: '모든 씬 그룹' },
+                ...(library.sceneFolders ?? []),
+                { id: '', name: '미분류' }
+              ].map((group) => {
+                const all = cards.filter(
+                  (card) => group.id === 'all' || (card.folderId ?? '') === group.id
+                )
+                const matching = all.filter((card) =>
+                  card.name.toLowerCase().includes(search.toLowerCase())
+                )
+                return (
+                  <SceneFolderChip
+                    key={group.id}
+                    group={group}
+                    count={all.length}
+                    matching={matching.length}
+                    filtered={!!search}
+                    active={folder === group.id}
+                    selected={matching.filter((card) => plan.columns.includes(card.id)).length}
+                    disabled={busy}
+                    onOpen={() => setFolder(group.id)}
+                    onSelect={(checked) =>
+                      setPlan((current) =>
+                        selectSceneColumns(
+                          current,
+                          matching.map((card) => card.id),
+                          checked
+                        )
+                      )
+                    }
+                  />
+                )
+              })}
+            </div>
+            {library.sceneFolders?.some((item) => item.id === folder) && (
+              <div className="px-toolbar px-scene-folder-actions">
+                <strong>{library.sceneFolders.find((item) => item.id === folder)?.name}</strong>
+                <button
+                  disabled={busy}
+                  onClick={() => {
+                    setRenameFolderId(folder)
+                    setRenameFolderName(
+                      library.sceneFolders?.find((item) => item.id === folder)?.name ?? ''
+                    )
+                    setRemoveFolderId('')
+                  }}
+                >
+                  <Pencil size={14} />
+                  이름 변경
+                </button>
+                <button
+                  disabled={busy}
+                  onClick={() => {
+                    setRemoveFolderId(folder)
+                    setRenameFolderId('')
+                  }}
+                >
+                  <Trash2 size={14} />
+                  그룹 삭제
+                </button>
+              </div>
+            )}
+            {renameFolderId && (
+              <form
+                className="px-inline px-scene-folder-form"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  if (busy) return
+                  void run(async () => {
+                    await store
+                      .getState()
+                      .editLibrary((current) =>
+                        renameSceneFolder(current, renameFolderId, renameFolderName)
+                      )
+                    setRenameFolderId('')
+                  }, '씬 그룹 이름을 바꿨습니다.')
+                }}
               >
+                <input
+                  aria-label="씬 그룹 새 이름"
+                  value={renameFolderName}
+                  onChange={(event) => setRenameFolderName(event.target.value)}
+                />
+                <button disabled={busy || !renameFolderName.trim()}>이름 저장</button>
+                <button type="button" onClick={() => setRenameFolderId('')}>
+                  취소
+                </button>
+              </form>
+            )}
+            {removeFolderId && (
+              <div className="px-confirm px-scene-folder-confirm">
+                <p>
+                  「{library.sceneFolders?.find((item) => item.id === removeFolderId)?.name}」
+                  그룹을 삭제할까요? 안의 씬은 미분류로 옮기며 기존 예약은 유지됩니다.
+                </p>
+                <button disabled={busy} onClick={() => deleteFolder(removeFolderId)}>
+                  그룹 삭제 확인
+                </button>
+                <button onClick={() => setRemoveFolderId('')}>취소</button>
+              </div>
+            )}
+            {showFolder && (
+              <form
+                className="px-inline px-scene-folder-form"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  if (busy || !folderName.trim()) return
+                  void run(async () => {
+                    const id = crypto.randomUUID()
+                    await store.getState().editLibrary((current) => ({
+                      ...current,
+                      sceneFolders: [
+                        ...(current.sceneFolders ?? []),
+                        { id, name: folderName.trim() }
+                      ]
+                    }))
+                    setFolderName('')
+                    setShowFolder(false)
+                  })
+                }}
+              >
+                <input
+                  aria-label="새 씬 그룹 이름"
+                  value={folderName}
+                  onChange={(event) => setFolderName(event.target.value)}
+                />
+                <button disabled={busy}>만들기</button>
+                <button type="button" onClick={() => setShowFolder(false)}>
+                  취소
+                </button>
+              </form>
+            )}
+            {!!plan.columns.length && (
+              <small className="px-scene-help">
+                선택한 씬의 손잡이를 그룹 칩에 놓으면 함께 이동 · 씬 사이에 놓으면 생성 순서 변경
+              </small>
+            )}
+            <div className="px-scroll">
+              <div className={'px-scene-collection is-' + sceneView}>
                 {orderedCards.map((card) => {
                   const selected = plan.columns.includes(card.id)
                   const content = (
@@ -679,29 +835,34 @@ export function Scenes({
                     </article>
                   )
                   return selected ? (
-                    <SortableItem key={card.id} id={card.id} name={card.name}>
+                    <SortableItem key={card.id} id={card.id} name={card.name} disabled={busy}>
                       {content}
                     </SortableItem>
                   ) : (
                     <div key={card.id}>{content}</div>
                   )
                 })}
-              </SortableItems>
-            </div>
-            {plan.columns
-              .filter((id) => !cards.some((card) => card.id === id))
-              .map((id) => (
-                <p className="px-error" key={id}>
-                  삭제된 씬: {id}
-                  <button onClick={() => toggleColumn(id)}>선택 해제</button>
+              </div>
+              {plan.columns
+                .filter((id) => !cards.some((card) => card.id === id))
+                .map((id) => (
+                  <p className="px-error" key={id}>
+                    삭제된 씬: {id}
+                    <button onClick={() => toggleColumn(id)}>선택 해제</button>
+                  </p>
+                ))}
+              {!cards.length && (
+                <p className="px-empty">
+                  위의 「새 씬 만들기」로 첫 장면을 만들어 보세요. 예: 미소 청크 + 손 흔들기 청크.
                 </p>
-              ))}
-            {!cards.length && (
-              <p className="px-empty">
-                위의 「새 씬 만들기」로 첫 장면을 만들어 보세요. 예: 미소 청크 + 손 흔들기 청크.
+              )}
+            </div>
+            {(creating || editId) && notice && (
+              <p role="status" className="px-scene-help">
+                {notice}
               </p>
             )}
-          </div>
+          </SortableItems>
         </section>
         <section className="px-pane px-batch-controls" aria-label="수량·순서">
           {creating || cards.find((card) => card.id === editId) ? (
@@ -956,6 +1117,62 @@ export function Scenes({
   )
 }
 
+function SceneFolderChip({
+  group,
+  count,
+  matching,
+  filtered,
+  active,
+  selected,
+  disabled,
+  onOpen,
+  onSelect
+}: {
+  group: Folder
+  count: number
+  matching: number
+  filtered: boolean
+  active: boolean
+  selected: number
+  disabled: boolean
+  onOpen: () => void
+  onSelect: (checked: boolean) => void
+}): React.JSX.Element {
+  const { setNodeRef, isOver } = useDroppable({
+    id: `scene-folder:${group.id}`,
+    disabled: disabled || group.id === 'all'
+  })
+  const selectionLabel = `${group.name} ${filtered ? '검색 결과 ' : ''}씬 전체 선택`
+  return (
+    <div ref={setNodeRef} className={`px-scene-folder${isOver ? ' is-over' : ''}`}>
+      <label title={`${selectionLabel} (${matching}개)`}>
+        <input
+          type="checkbox"
+          aria-label={selectionLabel}
+          aria-checked={selected > 0 && selected < matching ? 'mixed' : selected > 0}
+          ref={(input) => {
+            if (input) input.indeterminate = selected > 0 && selected < matching
+          }}
+          checked={matching > 0 && selected === matching}
+          disabled={!matching}
+          onChange={(event) => onSelect(event.target.checked)}
+        />
+      </label>
+      <button
+        type="button"
+        aria-pressed={active}
+        aria-label={`${group.name} 씬 보기`}
+        title={`${group.name} 씬만 보기`}
+        onClick={onOpen}
+      >
+        {active && <Eye size={13} aria-hidden="true" />}
+        {group.name}
+        <small>{filtered ? `${matching}/${count}` : count}</small>
+      </button>
+    </div>
+  )
+}
+
 function SceneEditor({
   editorTab,
   setEditorTab,
@@ -1163,6 +1380,24 @@ function SceneEditor({
               chunks={workspace.library.scenes}
               folders={workspace.library.chunkFolders}
               search={chunkSearch}
+              selectedIds={draft.sceneIds}
+              onSelectionChange={(ids) => {
+                const chunks = ids.flatMap((id) => {
+                  const existing = draft.chunks.find((chunk) => chunk.id === id)
+                  if (existing) return [existing]
+                  const original = workspace.library.scenes.find((chunk) => chunk.id === id)
+                  return original ? [stripFolder(original)] : []
+                })
+                setDraft({
+                  ...draft,
+                  chunks,
+                  sceneIds: chunks.map((chunk) => chunk.id),
+                  triggerPosition:
+                    typeof draft.triggerPosition === 'number'
+                      ? Math.min(draft.triggerPosition, chunks.length + 2)
+                      : (draft.triggerPosition ?? 1)
+                })
+              }}
               render={(chunk) => (
                 <label className="px-check">
                   <input

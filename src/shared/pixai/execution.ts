@@ -9,6 +9,7 @@ import type { UpdateStatus } from './updates'
 import type { ImageInfo } from './image-info'
 
 export interface QueuedJob {
+  registeredAt?: number
   request: ExpandedRequest
   imageCount: number
   options: SettingsOptions
@@ -38,6 +39,7 @@ export type JobState =
   | 'done'
   | 'cancelled'
 export interface ExecutionJob {
+  registeredAt?: number
   embedMetadata?: boolean
   metadataReferences?: { modelId: string; loraModelIds: string[] }
   id: string

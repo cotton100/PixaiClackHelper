@@ -1,10 +1,10 @@
 import { deleteCommonPreset, resolvePresetCommon, type CommonPreset } from '@shared/pixai/library'
 import { CommonEditor } from './common-editor'
 import { MaterialPreview } from './material-preview'
-import { bulkMaterials } from './library-actions'
+import { bulkMaterials, deleteMaterialFolder, renameMaterialFolder } from './library-actions'
 import { useUnsavedNavigation } from './unsaved-navigation'
 import { useEffect, useState } from 'react'
-import { Copy, FolderPlus, Plus, Trash2 } from 'lucide-react'
+import { Copy, FolderPlus, ListChecks, Plus, Trash2 } from 'lucide-react'
 import type { Cast, Character, Chunk, Folder, Library, Preset } from '@shared/pixai/library'
 import { PromptFields, SortableItem, SortableItems, SplitPanes } from './controls'
 import { savePaneUI, type PixaiStore } from './store'
@@ -93,21 +93,24 @@ export function LibraryEditor({ store }: { store: PixaiStore }): React.JSX.Eleme
         <section className="px-pane">
           <header>
             <h2>라이브러리</h2>
-            {!common && kind !== 'presets' && (
-              <button
-                disabled={busy}
-                aria-expanded={foldersOpen}
-                aria-controls="library-folder-tools"
-                onClick={() => setFoldersOpen(!foldersOpen)}
-              >
-                <FolderPlus size={16} />
-                폴더 추가
+            <div className="px-library-add-actions px-button-pair">
+              <button disabled={busy} onClick={() => guard.request(create)}>
+                <Plus size={16} />
+                추가
               </button>
-            )}
-            <button disabled={busy} onClick={() => guard.request(create)}>
-              <Plus size={16} />
-              추가
-            </button>
+              {!common && kind !== 'presets' && (
+                <button
+                  disabled={busy}
+                  aria-expanded={foldersOpen}
+                  aria-pressed={foldersOpen}
+                  aria-controls="library-folder-tools"
+                  onClick={() => setFoldersOpen(!foldersOpen)}
+                >
+                  <FolderPlus size={16} />
+                  폴더 추가
+                </button>
+              )}
+            </div>
           </header>
           <div className="px-subtabs">
             {(['characters', 'presets', 'scenes'] as const).map((id) => (
@@ -150,7 +153,7 @@ export function LibraryEditor({ store }: { store: PixaiStore }): React.JSX.Eleme
             onChange={(event) => setSearch(event.target.value)}
           />
           {!common && (
-            <div className="px-toolbar">
+            <div className="px-select-bar" data-active={selectMode}>
               <button
                 aria-pressed={selectMode}
                 onClick={() => {
@@ -158,13 +161,18 @@ export function LibraryEditor({ store }: { store: PixaiStore }): React.JSX.Eleme
                   setSelection([])
                 }}
               >
+                <ListChecks size={16} />
                 선택 모드
               </button>
-              <small>{selection.length}개 선택</small>
+              <small>
+                {selectMode
+                  ? `${selection.length}개 선택 · 이동·복제·삭제 대상`
+                  : '항목을 누르면 편집합니다. 여러 개를 옮기거나 지우려면 선택 모드를 켜세요.'}
+              </small>
             </div>
           )}
           {!common && selectMode && (
-            <div className="px-bulk-tools">
+            <div className="px-bulk-tools" aria-label="선택 항목 작업">
               <div className="px-toolbar">
                 <button
                   onClick={() =>
@@ -178,50 +186,58 @@ export function LibraryEditor({ store }: { store: PixaiStore }): React.JSX.Eleme
                   목록 전체 선택
                 </button>
                 <button onClick={() => setSelection([])}>선택 해제</button>
+                <span className="px-toolbar-gap" aria-hidden="true" />
                 <button
                   disabled={!selection.length || busy}
                   onClick={() => guard.request(() => void bulk('duplicate').catch(() => {}))}
                 >
+                  <Copy size={14} />
                   선택 복제
                 </button>
                 <button disabled={!selection.length || busy} onClick={() => setBulkDelete(true)}>
+                  <Trash2 size={14} />
                   선택 삭제
                 </button>
               </div>
               {kind !== 'presets' && (
-                <details>
-                  <summary>폴더로 이동</summary>
-                  <select
-                    aria-label="선택 항목 이동 폴더"
-                    value={moveFolder}
-                    onChange={(event) => setMoveFolder(event.target.value)}
-                  >
-                    <option value="">미분류</option>
-                    {(kind === 'characters'
-                      ? (workspace.library.characterFolders ?? [])
-                      : workspace.library.chunkFolders
-                    ).map((folder) => (
-                      <option key={folder.id} value={folder.id}>
-                        {folder.name}
-                      </option>
-                    ))}
-                    <option value="new">새 폴더…</option>
-                  </select>
-                  {moveFolder === 'new' && (
-                    <input
-                      aria-label="이동할 새 폴더 이름"
-                      value={newFolderName}
-                      onChange={(event) => setNewFolderName(event.target.value)}
-                    />
-                  )}
-                  <button
-                    disabled={
-                      !selection.length || busy || (moveFolder === 'new' && !newFolderName.trim())
-                    }
-                    onClick={() => guard.request(() => void bulk('move').catch(() => {}))}
-                  >
-                    선택 항목 이동
-                  </button>
+                <details className="px-bulk-move">
+                  <summary>
+                    폴더로 이동 <small>끌어다 놓거나 폴더 머리의 「여기로」를 눌러도 됩니다</small>
+                  </summary>
+                  <div className="px-inline">
+                    <select
+                      aria-label="선택 항목 이동 폴더"
+                      value={moveFolder}
+                      onChange={(event) => setMoveFolder(event.target.value)}
+                    >
+                      <option value="">미분류</option>
+                      {(kind === 'characters'
+                        ? (workspace.library.characterFolders ?? [])
+                        : workspace.library.chunkFolders
+                      ).map((folder) => (
+                        <option key={folder.id} value={folder.id}>
+                          {folder.name}
+                        </option>
+                      ))}
+                      <option value="new">새 폴더…</option>
+                    </select>
+                    {moveFolder === 'new' && (
+                      <input
+                        aria-label="이동할 새 폴더 이름"
+                        placeholder="새 폴더 이름"
+                        value={newFolderName}
+                        onChange={(event) => setNewFolderName(event.target.value)}
+                      />
+                    )}
+                    <button
+                      disabled={
+                        !selection.length || busy || (moveFolder === 'new' && !newFolderName.trim())
+                      }
+                      onClick={() => guard.request(() => void bulk('move').catch(() => {}))}
+                    >
+                      선택 항목 이동
+                    </button>
+                  </div>
                 </details>
               )}
               {bulkDelete && (
@@ -264,7 +280,7 @@ export function LibraryEditor({ store }: { store: PixaiStore }): React.JSX.Eleme
           <div className="px-scroll" hidden={common}>
             {kind !== 'presets' && foldersOpen && (
               <div id="library-folder-tools">
-                <MaterialFolders key={`folders:${kind}`} store={store} kind={kind} />
+                <MaterialFolders key={`folders:${kind}`} store={store} kind={kind} guard={guard} />
               </div>
             )}
             {kind !== 'presets' ? (
@@ -278,28 +294,49 @@ export function LibraryEditor({ store }: { store: PixaiStore }): React.JSX.Eleme
                 }
                 label={labels[kind]}
                 search={search}
-                onReorder={(ids) => {
-                  void edit((library) => {
-                    let at = 0
-                    const moved = new Set(ids)
-                    const ordered = ids.map((id) => library[kind].find((chunk) => chunk.id === id)!)
-                    return {
-                      ...library,
-                      [kind]: library[kind].map((chunk) =>
-                        moved.has(chunk.id) ? ordered[at++] : chunk
-                      )
-                    }
-                  }).catch(() => {})
-                }}
-                onMove={(id, folderId) =>
+                selectedIds={selectMode ? selection : undefined}
+                onSelectionChange={setSelection}
+                disabled={busy}
+                onRenameFolder={(id, name) =>
                   guard.request(
                     () =>
-                      void store
-                        .getState()
-                        .editLibrary((library) =>
-                          bulkMaterials(library, kind, [id], 'move', folderId, '')
+                      void edit((library) => renameMaterialFolder(library, kind, id, name)).catch(
+                        () => {}
+                      )
+                  )
+                }
+                onDeleteFolder={(id) =>
+                  guard.request(
+                    () =>
+                      void edit((library) => deleteMaterialFolder(library, kind, id)).catch(
+                        () => {}
+                      )
+                  )
+                }
+                onReorder={(ids) => {
+                  guard.request(
+                    () =>
+                      void edit((library) => {
+                        let at = 0
+                        const moved = new Set(ids)
+                        const ordered = ids.map((id) =>
+                          library[kind].find((chunk) => chunk.id === id)!
                         )
-                        .catch(() => {})
+                        return {
+                          ...library,
+                          [kind]: library[kind].map((chunk) =>
+                            moved.has(chunk.id) ? ordered[at++] : chunk
+                          )
+                        }
+                      }).catch(() => {})
+                  )
+                }}
+                onMoveItems={(ids, folderId) =>
+                  guard.request(
+                    () =>
+                      void edit((library) =>
+                        bulkMaterials(library, kind, ids, 'move', folderId, '')
+                      ).catch(() => {})
                   )
                 }
                 render={(chunk) => (
@@ -1126,13 +1163,16 @@ function CastEditor({
 
 function MaterialFolders({
   store,
-  kind
+  kind,
+  guard
 }: {
   store: PixaiStore
   kind: 'characters' | 'scenes'
+  guard: ReturnType<typeof useUnsavedNavigation>
 }): React.JSX.Element {
   const { workspace, busy } = store()
   const [name, setName] = useState('')
+  const [error, setError] = useState('')
   const key = kind === 'characters' ? 'characterFolders' : 'chunkFolders'
   const folders = workspace.library[key] ?? []
   return (
@@ -1142,15 +1182,25 @@ function MaterialFolders({
         className="px-inline"
         onSubmit={(event) => {
           event.preventDefault()
-          if (name.trim())
-            void store
-              .getState()
-              .editLibrary((library) => ({
-                ...library,
-                [key]: [...(library[key] ?? []), { id: crypto.randomUUID(), name: name.trim() }]
-              }))
-              .then(() => setName(''))
-              .catch(() => {})
+          if (name.trim() && !busy)
+            guard.request(
+              () =>
+                void store
+                  .getState()
+                  .editLibrary((library) => ({
+                    ...library,
+                    [key]: [...(library[key] ?? []), { id: crypto.randomUUID(), name: name.trim() }]
+                  }))
+                  .then(() => {
+                    setName('')
+                    setError('')
+                  })
+                  .catch((failure) =>
+                    setError(
+                      failure instanceof Error ? failure.message : '폴더를 만들지 못했습니다.'
+                    )
+                  )
+            )
         }}
       >
         <input
@@ -1158,22 +1208,30 @@ function MaterialFolders({
           value={name}
           onChange={(event) => setName(event.target.value)}
         />
-        <button disabled={busy}>폴더 만들기</button>
+        <button disabled={busy || !name.trim()}>폴더 만들기</button>
       </form>
+      {error && <p role="alert">{error}</p>}
       <SortableItems
         ids={folders.map((folder) => folder.id)}
         onReorder={(ids) => {
-          void store
-            .getState()
-            .editLibrary((library) => ({
-              ...library,
-              [key]: ids.map((id) => library[key]!.find((folder) => folder.id === id)!)
-            }))
-            .catch(() => {})
+          guard.request(
+            () =>
+              void store
+                .getState()
+                .editLibrary((library) => ({
+                  ...library,
+                  [key]: ids.map((id) => library[key]!.find((folder) => folder.id === id)!)
+                }))
+                .catch((failure) =>
+                  setError(
+                    failure instanceof Error ? failure.message : '순서를 저장하지 못했습니다.'
+                  )
+                )
+          )
         }}
       >
         {folders.map((folder) => (
-          <SortableItem id={folder.id} key={folder.id} name={folder.name}>
+          <SortableItem id={folder.id} key={folder.id} name={folder.name} disabled={busy}>
             <span>{folder.name}</span>
           </SortableItem>
         ))}
