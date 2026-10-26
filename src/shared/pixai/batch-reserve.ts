@@ -265,6 +265,12 @@ export function expandBatchPlan(
     )
   const idFactory = options.idFactory ?? defaultIdFactory
   const problems: BatchProblem[] = []
+  const extraChunks: Chunk[] = []
+  for (const id of plan.extraChunkIds ?? []) {
+    const chunk = library.scenes.find((item) => item.id === id)
+    if (chunk) extraChunks.push(stripFolder(chunk))
+    else problems.push({ level: 'error', message: `선택한 추가 청크가 없습니다: ${id}` })
+  }
   const rows = plan.rows.map((row) => resolveRow(library, row))
   for (const row of rows)
     for (const message of row.problems)
@@ -289,6 +295,14 @@ export function expandBatchPlan(
         columnId: id,
         columnName: card.name,
         message: `씬 「${card.name}」의 청크 ${missing.join(', ')} 연결이 끊겨 저장된 사본을 사용합니다.`
+      })
+    const overlapping = extraChunks.filter((chunk) => card.sceneIds.includes(chunk.id))
+    if (overlapping.length)
+      problems.push({
+        level: 'warning',
+        columnId: id,
+        columnName: card.name,
+        message: `씬 「${card.name}」에 이미 있는 추가 청크 「${overlapping.map((chunk) => chunk.name || chunk.id).join(' · ')}」가 두 번 포함됩니다.`
       })
     return card
   })
@@ -320,6 +334,8 @@ export function expandBatchPlan(
           character: library.characters.find((item) => item.id === row.characterId),
           column,
           extra: row.extra,
+          ...(plan.extraChunkIds !== undefined ? { extraChunks } : {}),
+          ...(plan.promptOrder !== undefined ? { promptOrder: plan.promptOrder } : {}),
           name: plan.name
         },
         count
@@ -351,7 +367,9 @@ export function expandBatchPlan(
           preset,
           character,
           chunks: column.chunks,
-          ...(Object.keys(extras).length ? { extras } : {})
+          ...(Object.keys(extras).length ? { extras } : {}),
+          ...(plan.extraChunkIds !== undefined ? { extraChunks } : {}),
+          ...(plan.promptOrder !== undefined ? { promptOrder: plan.promptOrder } : {})
         }),
         batch: { id: batch.id, name: batch.name, rowName: row.name, columnName: column.name }
       }

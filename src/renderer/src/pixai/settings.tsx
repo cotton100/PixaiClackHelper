@@ -98,6 +98,8 @@ export function BackupSettings({
     batchPlans: '일괄 예약 구성',
     'characters.defaultPresetId': '캐릭터 기본 프리셋 연결',
     'reservations.batch': '예약 묶음 표시',
+    'reservations.snapshot.extraChunks': '추가 청크를 포함한 씬 예약',
+    'reservations.snapshot.promptOrder': '문구 묶음 순서를 바꾼 씬 예약',
     'presets.prompt': '프리셋 공통 포지·네거'
   }
   async function readFile(file?: File): Promise<void> {

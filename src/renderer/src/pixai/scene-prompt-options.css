@@ -1,0 +1,89 @@
+.px-scene-prompt-options {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.px-scene-prompt-options h3 {
+  margin: 0;
+  flex: 1;
+}
+
+.px-scene-prompt-options fieldset {
+  min-width: 0;
+}
+
+.px-scene-block-order {
+  display: grid;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.px-scene-prompt-block {
+  display: grid;
+  gap: 2px;
+  padding: 6px 0;
+  overflow-wrap: anywhere;
+}
+
+.px-scene-extra-selected {
+  max-height: 240px;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.px-scene-extra-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 5px 0;
+}
+
+.px-scene-extra-row > button {
+  display: inline-flex;
+  flex: none;
+  padding: 5px;
+}
+
+.px-scene-extra-choice {
+  width: 100%;
+  min-width: 0;
+  align-items: flex-start;
+  padding: 6px 0;
+}
+
+.px-scene-extra-choice input {
+  flex: none;
+  margin-top: 3px;
+}
+
+.px-scene-extra-choice strong,
+.px-scene-extra-row strong {
+  overflow-wrap: anywhere;
+}
+
+.px-scene-prompt-preview summary {
+  cursor: pointer;
+}
+
+.px-scene-prompt-preview > small,
+.px-scene-prompt-preview > strong {
+  display: block;
+  margin-top: 8px;
+}
+
+.px-scene-prompt-preview pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 180px;
+  overflow-y: auto;
+  font: inherit;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--px-bg);
+}
+
+[data-compose-group='scene-prompt-options'] .px-compose-group-value > span {
+  display: block;
+}
