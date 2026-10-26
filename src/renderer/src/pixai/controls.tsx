@@ -172,6 +172,7 @@ export function SplitPanes({
 export function SortableItems({
   ids,
   onReorder,
+  immediateDrag = false,
   onDrop,
   onDragStart,
   onDragCancel,
@@ -181,6 +182,7 @@ export function SortableItems({
 }: {
   ids: string[]
   onReorder: (ids: string[]) => void
+  immediateDrag?: boolean
   grid?: boolean
   onDrop?: (id: string, target: string) => boolean
   onDragStart?: (id: string) => void
@@ -190,7 +192,9 @@ export function SortableItems({
 }): React.JSX.Element {
   const [dragging, setDragging] = useState<string | null>(null)
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(PointerSensor, {
+      activationConstraint: immediateDrag ? undefined : { distance: 5 }
+    }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   )
   return (

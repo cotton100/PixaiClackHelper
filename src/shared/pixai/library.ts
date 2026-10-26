@@ -76,6 +76,13 @@ export interface Folder {
 
 export type TriggerPosition = number | 'end'
 
+export type BatchPromptBlock = 'character' | 'scene' | 'extraChunks'
+export const DEFAULT_BATCH_PROMPT_ORDER: readonly BatchPromptBlock[] = [
+  'character',
+  'scene',
+  'extraChunks'
+]
+
 export interface ImageOptions {
   aspectRatio: string
   size: '1k' | '1.5k'
@@ -96,6 +103,8 @@ export interface Snapshot {
   character: Character
   chunks: Chunk[]
   extras?: { cast?: ExtraText; scene?: ExtraText }
+  extraChunks?: Chunk[]
+  promptOrder?: BatchPromptBlock[]
 }
 
 export interface Reservation {
@@ -161,6 +170,8 @@ export interface BatchPlan {
   exceptions: Record<string, number>
   order: 'byRow' | 'byColumn'
   imageOptions?: ImageOptions
+  extraChunkIds?: string[]
+  promptOrder?: BatchPromptBlock[]
 }
 
 export interface Library {
@@ -276,6 +287,16 @@ export function normalizeTriggerPosition(value: unknown, chunkCount: number): Tr
   if (!Number.isInteger(value) || (value as number) < 0 || (value as number) > chunkCount + 2)
     throw new Error('LoRA 트리거 위치를 확인해 주세요.')
   return value as number
+}
+
+export function normalizeBatchPromptOrder(value: unknown): BatchPromptBlock[] {
+  if (
+    !Array.isArray(value) ||
+    value.length !== DEFAULT_BATCH_PROMPT_ORDER.length ||
+    !DEFAULT_BATCH_PROMPT_ORDER.every((block) => value.includes(block))
+  )
+    throw new Error('문구 순서는 캐릭터·씬·추가 청크를 한 번씩 포함해야 합니다.')
+  return [...value] as BatchPromptBlock[]
 }
 
 export function normalizeImageOptions(value: unknown): ImageOptions {
@@ -434,7 +455,18 @@ export function normalizeBatchPlan(item: unknown, id = 'plan'): BatchPlan {
     item,
     '일괄 예약 구성',
     ['rows', 'columns', 'count'],
-    ['id', 'name', 'rows', 'columns', 'count', 'exceptions', 'order', 'imageOptions']
+    [
+      'id',
+      'name',
+      'rows',
+      'columns',
+      'count',
+      'exceptions',
+      'order',
+      'imageOptions',
+      'extraChunkIds',
+      'promptOrder'
+    ]
   )
   if (!Array.isArray(source.rows) || !Array.isArray(source.columns))
     throw new Error('일괄 예약의 행·열 목록 형식을 확인해 주세요.')
@@ -480,6 +512,15 @@ export function normalizeBatchPlan(item: unknown, id = 'plan'): BatchPlan {
   }
   if (hasOwn(source, 'imageOptions') && source.imageOptions != null)
     plan.imageOptions = normalizeImageOptions(source.imageOptions)
+  if (hasOwn(source, 'extraChunkIds')) {
+    if (!Array.isArray(source.extraChunkIds))
+      throw new Error('추가 청크 목록 형식을 확인해 주세요.')
+    plan.extraChunkIds = source.extraChunkIds.map((value) => presetIdentifier(value, '추가 청크'))
+    if (new Set(plan.extraChunkIds).size !== plan.extraChunkIds.length)
+      throw new Error('같은 추가 청크를 중복 선택할 수 없습니다.')
+  }
+  if (hasOwn(source, 'promptOrder'))
+    plan.promptOrder = normalizeBatchPromptOrder(source.promptOrder)
   return plan
 }
 
@@ -525,7 +566,7 @@ export function normalizeSnapshot(value: unknown): Snapshot {
     value,
     '예약 사본',
     ['common', 'preset', 'character', 'chunks'],
-    ['common', 'preset', 'character', 'chunks', 'extras']
+    ['common', 'preset', 'character', 'chunks', 'extras', 'extraChunks', 'promptOrder']
   )
   const frozen = normalizeLibrary({
     version: 1,
@@ -550,6 +591,17 @@ export function normalizeSnapshot(value: unknown): Snapshot {
     if (hasOwn(extras, 'scene'))
       snapshot.extras.scene = normalizeExtraText(extras.scene, '씬 추가 문구')
   }
+  if (hasOwn(source, 'extraChunks')) {
+    if (!Array.isArray(source.extraChunks))
+      throw new Error('예약 추가 청크 사본 목록 형식을 확인해 주세요.')
+    snapshot.extraChunks = normalizeChunkList(
+      source.extraChunks.map((chunk) => omitKey(presetObject(chunk, '추가 청크 사본'), 'folderId')),
+      new Set(),
+      '추가 청크 사본'
+    )
+  }
+  if (hasOwn(source, 'promptOrder'))
+    snapshot.promptOrder = normalizeBatchPromptOrder(source.promptOrder)
   return snapshot
 }
 
@@ -838,14 +890,25 @@ export function strictLibrary(value: unknown): Library {
       item,
       '일괄 예약 구성',
       ['id', 'rows', 'columns', 'count'],
-      ['id', 'name', 'rows', 'columns', 'count', 'exceptions', 'order', 'imageOptions']
+      [
+        'id',
+        'name',
+        'rows',
+        'columns',
+        'count',
+        'exceptions',
+        'order',
+        'imageOptions',
+        'extraChunkIds',
+        'promptOrder'
+      ]
     )
   return library
 }
 
-/** 스크립트(0.9.x)가 읽을 수 있는 모양: 앱 전용 키·필드를 뺀다. 예약 사본의 extras는 문구에 녹여 넣을 수 없으므로 그런 예약은 제외하고 개수를 알려 준다. */
+/** 스크립트(0.9.x)가 읽을 수 있는 모양: 앱 전용 키·필드를 빼고, 문구나 순서를 보존할 수 없는 예약은 제외해 개수를 알려 준다. */
 export interface ScriptExportDropped {
-  /** 제외한 예약 수 (출연·씬 추가 문구 또는 실제 적용할 프리셋 문구가 있는 것) */
+  /** 제외한 예약 수 (앱 전용 문구·추가 청크·블록 순서를 사용하는 것) */
   reservations: number
   /** 그중 프리셋 문구 때문에 제외한 예약 수 */
   reservationsWithPresetText: number
@@ -904,6 +967,15 @@ export function exportForScript(value: unknown): {
           dropped.reservations++
           return false
         }
+        if (
+          item.snapshot?.extraChunks?.length ||
+          item.snapshot?.promptOrder?.some(
+            (block, index) => block !== DEFAULT_BATCH_PROMPT_ORDER[index]
+          )
+        ) {
+          dropped.reservations++
+          return false
+        }
         return true
       })
       .map((item) => {
@@ -911,7 +983,10 @@ export function exportForScript(value: unknown): {
         return plain.snapshot
           ? {
               ...plain,
-              snapshot: { ...plain.snapshot, preset: presetForScript(plain.snapshot.preset) }
+              snapshot: {
+                ...omitKey(omitKey(plain.snapshot, 'extraChunks'), 'promptOrder'),
+                preset: presetForScript(plain.snapshot.preset)
+              }
             }
           : plain
       })
@@ -926,6 +1001,16 @@ export function exportForScript(value: unknown): {
   if (library.characters.some((item) => item.defaultPresetId))
     dropped.keys.push('characters.defaultPresetId')
   if (library.reservations.some((item) => item.batch)) dropped.keys.push('reservations.batch')
+  if (library.reservations.some((item) => item.snapshot?.extraChunks?.length))
+    dropped.keys.push('reservations.snapshot.extraChunks')
+  if (
+    library.reservations.some((item) =>
+      item.snapshot?.promptOrder?.some(
+        (block, index) => block !== DEFAULT_BATCH_PROMPT_ORDER[index]
+      )
+    )
+  )
+    dropped.keys.push('reservations.snapshot.promptOrder')
   return { library: out, dropped }
 }
 
@@ -1111,9 +1196,10 @@ const joinParts = (...parts: Array<string | undefined>): string =>
     .join(', ')
 
 /**
- * 공통(전역 공통 + 프리셋 공통) → (트리거) → 캐릭터+출연 문구 → 청크들 → 씬 문구.
+ * 공통(전역 공통 + 프리셋 공통) → (트리거) → 캐릭터+출연 문구 → 청크들 → 씬 문구 → 추가 청크.
  * 트리거 위치: 0=맨 앞, 1=공통 블록 뒤, 2=캐릭터 뒤, k+2=청크 k 뒤, 'end'=맨 뒤.
  * 프리셋 문구는 전역 공통 바로 뒤에 붙는 같은 블록이라 트리거 인덱스를 바꾸지 않는다.
+ * 블록 순서를 바꿔도 트리거는 지정한 캐릭터 또는 씬 청크 바로 뒤를 따라간다.
  */
 export function composePrompts(
   common: ExtraText,
@@ -1121,26 +1207,37 @@ export function composePrompts(
   chunks: ExtraText[],
   preset: { loras: LoraRef[]; prompt?: string; negativePrompt?: string },
   triggerPosition: TriggerPosition = 1,
-  extras: { cast?: ExtraText; scene?: ExtraText } = {}
+  extras: { cast?: ExtraText; scene?: ExtraText } = {},
+  options: { extraChunks?: ExtraText[]; promptOrder?: BatchPromptBlock[] } = {}
 ): ExtraText {
   const triggers = preset.loras.map((item) => presetText(item.triggerWords ?? ''))
-  const promptParts = [
-    joinParts(common.prompt, preset.prompt),
-    joinParts(character.prompt, extras.cast?.prompt),
-    ...chunks.map((item) => item.prompt)
-  ]
   const position = normalizeTriggerPosition(triggerPosition, chunks.length)
-  if (position === 'end') promptParts.push(extras.scene?.prompt ?? '', ...triggers)
-  else {
-    promptParts.splice(position, 0, ...triggers)
-    promptParts.push(extras.scene?.prompt ?? '')
+  const order = options.promptOrder
+    ? normalizeBatchPromptOrder(options.promptOrder)
+    : DEFAULT_BATCH_PROMPT_ORDER
+  const promptParts = position === 0 ? [...triggers] : []
+  promptParts.push(joinParts(common.prompt, preset.prompt))
+  if (position === 1) promptParts.push(...triggers)
+  const negativeParts = [joinParts(common.negativePrompt, preset.negativePrompt)]
+  for (const block of order) {
+    if (block === 'character') {
+      promptParts.push(joinParts(character.prompt, extras.cast?.prompt))
+      if (position === 2) promptParts.push(...triggers)
+      negativeParts.push(joinParts(character.negativePrompt, extras.cast?.negativePrompt))
+    } else if (block === 'scene') {
+      chunks.forEach((chunk, index) => {
+        promptParts.push(chunk.prompt)
+        if (position === index + 3) promptParts.push(...triggers)
+        negativeParts.push(chunk.negativePrompt)
+      })
+      promptParts.push(extras.scene?.prompt ?? '')
+      negativeParts.push(extras.scene?.negativePrompt ?? '')
+    } else {
+      promptParts.push(...(options.extraChunks ?? []).map((chunk) => chunk.prompt))
+      negativeParts.push(...(options.extraChunks ?? []).map((chunk) => chunk.negativePrompt))
+    }
   }
-  const negativeParts = [
-    joinParts(common.negativePrompt, preset.negativePrompt),
-    joinParts(character.negativePrompt, extras.cast?.negativePrompt),
-    ...chunks.map((item) => item.negativePrompt),
-    extras.scene?.negativePrompt ?? ''
-  ]
+  if (position === 'end') promptParts.push(...triggers)
   return { prompt: joinParts(...promptParts), negativePrompt: joinParts(...negativeParts) }
 }
 
@@ -1213,7 +1310,8 @@ export function expandReservations(
       chunks,
       preset,
       reservation.triggerPosition,
-      frozen?.extras
+      frozen?.extras,
+      { extraChunks: frozen?.extraChunks, promptOrder: frozen?.promptOrder }
     )
     if (!prompts.prompt) throw new Error(`예약 ${reservation.id}의 조합 프롬프트가 비어 있습니다.`)
     for (let repeat = 1; repeat <= reservation.count; repeat++) {

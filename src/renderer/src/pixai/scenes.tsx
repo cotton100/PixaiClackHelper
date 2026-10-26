@@ -1,4 +1,5 @@
 import { MaterialPreview } from './material-preview'
+import { ScenePromptOptions } from './scene-prompt-options'
 import { useUnsavedNavigation } from './unsaved-navigation'
 import { RatioMark } from './ratio-mark'
 import { useEffect, useState } from 'react'
@@ -895,6 +896,13 @@ export function Scenes({
                   ① 캐릭터 체크 → ② 씬 체크 → ③ 아래에서 예약. 예약 후 조합 예약 탭에서 대기열에
                   등록하세요.
                 </p>
+                <ScenePromptOptions
+                  library={library}
+                  plan={plan}
+                  onChange={setPlan}
+                  sample={preview.expansion?.reservations[0]}
+                  disabled={busy || saving}
+                />
                 <details className="px-batch-detail">
                   <summary>묶음: {plan.name.trim() || automaticName}</summary>
                   <label>

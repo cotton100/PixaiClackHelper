@@ -188,12 +188,14 @@ export function selectBackupLibrary(
         add('presets', row.presetId)
       })
       item.columns.forEach((x) => add('sceneCards', x))
+      item.extraChunkIds?.forEach((x) => add('scenes', x))
     }
     if (key === 'reservations' || key === 'combinations') {
       const item = index[key].get(id)!
       add('characters', item.characterId)
       add('presets', item.presetId)
       item.sceneIds.forEach((x) => add('scenes', x))
+      if ('snapshot' in item) item.snapshot?.extraChunks?.forEach((x) => add('scenes', x.id))
       if ('sourceSceneId' in item) add('sceneCards', item.sourceSceneId)
     }
   }
@@ -473,6 +475,7 @@ export function prepareBackupImport(
     }
     plan.exceptions = exceptions
     plan.columns = plan.columns.map((id) => remap('sceneCards', id))
+    if (plan.extraChunkIds) plan.extraChunkIds = plan.extraChunkIds.map((id) => remap('scenes', id))
   }
   for (const item of [...incoming.reservations, ...(incoming.combinations ?? [])]) {
     item.presetId = remap('presets', item.presetId)
@@ -489,6 +492,7 @@ export function prepareBackupImport(
           item.snapshot.character.defaultPresetId
         )
       for (const chunk of item.snapshot.chunks) chunk.id = remap('scenes', chunk.id)
+      for (const chunk of item.snapshot.extraChunks ?? []) chunk.id = remap('scenes', chunk.id)
     }
     if ('sourceSceneId' in item && item.sourceSceneId)
       item.sourceSceneId = remap('sceneCards', item.sourceSceneId)

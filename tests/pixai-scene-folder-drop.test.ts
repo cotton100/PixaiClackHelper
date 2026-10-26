@@ -19,7 +19,8 @@ vi.mock('@dnd-kit/core', async (importOriginal) => {
     DndContext: (props: { children: ReactNode; onDragEnd: typeof dragHarness.drop }): ReactNode => {
       const ids = (Children.toArray(props.children)[0] as ReactElement<{ items: string[] }>).props
         .items
-      if (ids.some((id) => id.startsWith('sc'))) dragHarness.drop = props.onDragEnd
+      // Fixture scene cards are sc1/sc2/sc3; the separate prompt block is named "scene".
+      if (ids.some((id) => /^sc\d+$/.test(id))) dragHarness.drop = props.onDragEnd
       return props.children
     }
   }
