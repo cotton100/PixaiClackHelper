@@ -22,7 +22,85 @@ const blockNames: Record<BatchPromptBlock, string> = {
 const blockDescriptions: Record<BatchPromptBlock, string> = {
   character: '캐릭터 프롬프트 + 출연 문구',
   scene: '씬에 저장된 청크 + 씬 문구',
-  extraChunks: '아래에서 고른 청크 · 선택한 순서대로'
+  extraChunks: '왼쪽 아래에서 고른 청크 · 선택한 순서대로'
+}
+
+export function SceneExtraChunkPicker({
+  library,
+  plan,
+  onChange,
+  disabled = false
+}: {
+  library: Library
+  plan: BatchPlan
+  onChange: (plan: BatchPlan) => void
+  disabled?: boolean
+}): React.JSX.Element {
+  const [search, setSearch] = useState('')
+  const ids = plan.extraChunkIds ?? []
+  function select(next: string[]): void {
+    onChange({ ...plan, extraChunkIds: next })
+  }
+  return (
+    <section className="px-pane px-scene-extra-picker" aria-label="추가 청크 선택">
+      <header>
+        <h2>추가 청크 선택</h2>
+        <span>{ids.length}개 선택</span>
+      </header>
+      <input
+        type="search"
+        aria-label="추가 청크 검색"
+        placeholder="추가할 청크 검색"
+        value={search}
+        onChange={(event) => setSearch(event.target.value)}
+      />
+      <div className="px-toolbar">
+        <small>모든 캐릭터×씬에 함께 추가</small>
+        <button type="button" disabled={disabled || !ids.length} onClick={() => select([])}>
+          추가 청크 선택 해제
+        </button>
+      </div>
+      <div className="px-scroll px-scene-extra-library" aria-label="추가 청크 목록">
+        <ChunkList
+          label="추가 청크"
+          chunks={library.scenes}
+          folders={library.chunkFolders}
+          search={search}
+          selectedIds={ids}
+          onSelectionChange={select}
+          disabled={disabled}
+          render={(chunk) => (
+            <label className="px-check px-scene-extra-choice">
+              <input
+                type="checkbox"
+                aria-label={`추가 청크 ${chunk.name} 선택`}
+                checked={ids.includes(chunk.id)}
+                disabled={disabled}
+                onChange={() =>
+                  select(
+                    ids.includes(chunk.id)
+                      ? ids.filter((id) => id !== chunk.id)
+                      : [...ids, chunk.id]
+                  )
+                }
+              />
+              <span className="px-grow">
+                <strong>{chunk.name}</strong>
+                <MaterialPreview item={chunk} />
+              </span>
+            </label>
+          )}
+        />
+        {!library.scenes.length && (
+          <p className="px-hint">라이브러리에 청크를 먼저 추가해 주세요.</p>
+        )}
+        {!!library.scenes.length &&
+          !library.scenes.some((chunk) =>
+            chunk.name.toLowerCase().includes(search.toLowerCase())
+          ) && <p className="px-hint">검색에 맞는 청크가 없습니다.</p>}
+      </div>
+    </section>
+  )
 }
 
 export function ScenePromptOptions({
@@ -38,7 +116,6 @@ export function ScenePromptOptions({
   sample?: Reservation
   disabled?: boolean
 }): React.JSX.Element {
-  const [search, setSearch] = useState('')
   const ids = plan.extraChunkIds ?? []
   const order = plan.promptOrder ?? DEFAULT_BATCH_PROMPT_ORDER
   const chunkById = new Map(library.scenes.map((chunk) => [chunk.id, chunk]))
@@ -63,7 +140,7 @@ export function ScenePromptOptions({
   return (
     <ComposeGroup
       id="scene-prompt-options"
-      title="추가 청크·문구 순서"
+      title="문구 순서·미리보기"
       defaultOpen
       summary={
         <>
@@ -105,12 +182,7 @@ export function ScenePromptOptions({
             </SortableItems>
           </div>
         </fieldset>
-        <div className="px-toolbar">
-          <h3>추가 청크 {ids.length}개</h3>
-          <button type="button" disabled={disabled || !ids.length} onClick={() => select([])}>
-            추가 청크 선택 해제
-          </button>
-        </div>
+        <h3>선택한 추가 청크 {ids.length}개</h3>
         {!!ids.length && (
           <div className="px-scene-extra-selected" aria-label="선택한 추가 청크 순서">
             <small>추가 청크끼리도 손잡이로 순서를 바꿀 수 있습니다.</small>
@@ -143,52 +215,6 @@ export function ScenePromptOptions({
             </SortableItems>
           </div>
         )}
-        <input
-          type="search"
-          aria-label="추가 청크 검색"
-          placeholder="추가할 청크 검색"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-        />
-        <div className="px-scene-extra-library" aria-label="추가 청크 목록">
-          <ChunkList
-            label="추가 청크"
-            chunks={library.scenes}
-            folders={library.chunkFolders}
-            search={search}
-            selectedIds={ids}
-            onSelectionChange={select}
-            disabled={disabled}
-            render={(chunk) => (
-              <label className="px-check px-scene-extra-choice">
-                <input
-                  type="checkbox"
-                  aria-label={`추가 청크 ${chunk.name} 선택`}
-                  checked={ids.includes(chunk.id)}
-                  disabled={disabled}
-                  onChange={() =>
-                    select(
-                      ids.includes(chunk.id)
-                        ? ids.filter((id) => id !== chunk.id)
-                        : [...ids, chunk.id]
-                    )
-                  }
-                />
-                <span className="px-grow">
-                  <strong>{chunk.name}</strong>
-                  <MaterialPreview item={chunk} />
-                </span>
-              </label>
-            )}
-          />
-          {!library.scenes.length && (
-            <p className="px-hint">라이브러리에 청크를 먼저 추가해 주세요.</p>
-          )}
-          {!!library.scenes.length &&
-            !library.scenes.some((chunk) =>
-              chunk.name.toLowerCase().includes(search.toLowerCase())
-            ) && <p className="px-hint">검색에 맞는 청크가 없습니다.</p>}
-        </div>
         <details className="px-scene-prompt-preview">
           <summary>첫 조합 문구 미리보기</summary>
           {prompt ? (

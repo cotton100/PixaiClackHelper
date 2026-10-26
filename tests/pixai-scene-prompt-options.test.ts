@@ -119,18 +119,26 @@ describe('scene extra chunks and prompt order UI', () => {
       'quality, trigger, alice, smile, backlight, rain'
     )
     expect(container.querySelector('.px-totals')!.textContent).toBe('1조합 · 1작업 · 4장')
-    await click('추가 청크·문구 순서 접기·펼치기')
-    expect(button('추가 청크·문구 순서 접기·펼치기').getAttribute('aria-expanded')).toBe('false')
-    expect(field('추가 청크·문구 순서 현재 선택').textContent).toContain('2개 · 역광, 비')
-    expect(field('추가 청크·문구 순서 현재 선택').textContent).toContain('캐릭터 → 씬 → 추가 청크')
+    await click('문구 순서·미리보기 접기·펼치기')
+    expect(button('문구 순서·미리보기 접기·펼치기').getAttribute('aria-expanded')).toBe('false')
+    expect(field('문구 순서·미리보기 현재 선택').textContent).toContain('2개 · 역광, 비')
+    expect(field('문구 순서·미리보기 현재 선택').textContent).toContain('캐릭터 → 씬 → 추가 청크')
+    // Folding the right-side order controls must leave the left picker usable.
+    expect(field('추가 청크 검색').closest('[hidden]')).toBeNull()
+    expect(field('추가 청크 검색').closest('section')?.getAttribute('aria-label')).toBe(
+      '추가 청크 선택'
+    )
+    await check('추가 청크 폴더 빛과 날씨 선택')
+    expect(field('문구 순서·미리보기 현재 선택').textContent).toContain('추가 청크 없음')
+    await check('추가 청크 폴더 빛과 날씨 선택')
     expect(write).not.toHaveBeenCalled()
-    await click('추가 청크·문구 순서 접기·펼치기')
+    await click('문구 순서·미리보기 접기·펼치기')
     await click('추가 청크 역광 빼기')
     expect(field('씬 조합 포지티브 미리보기').textContent).toBe(
       'quality, trigger, alice, smile, rain'
     )
     await click('추가 청크 선택 해제')
-    expect(field('추가 청크·문구 순서 현재 선택').textContent).toContain('추가 청크 없음')
+    expect(field('문구 순서·미리보기 현재 선택').textContent).toContain('추가 청크 없음')
     expect(field('씬 조합 포지티브 미리보기').textContent).toBe('quality, trigger, alice, smile')
   })
 
@@ -147,8 +155,8 @@ describe('scene extra chunks and prompt order UI', () => {
         item.getAttribute('data-prompt-block')
       )
     ).toEqual(['scene', 'extraChunks', 'character'])
-    expect(field('추가 청크·문구 순서 현재 선택').textContent).toContain('씬 → 추가 청크 → 캐릭터')
-    expect(field('추가 청크·문구 순서 현재 선택').textContent).toContain('2개 · 비, 역광')
+    expect(field('문구 순서·미리보기 현재 선택').textContent).toContain('씬 → 추가 청크 → 캐릭터')
+    expect(field('문구 순서·미리보기 현재 선택').textContent).toContain('2개 · 비, 역광')
     expect(field('씬 조합 포지티브 미리보기').textContent).toBe(
       'quality, trigger, smile, rain, backlight, alice'
     )
@@ -222,7 +230,7 @@ describe('scene extra chunks and prompt order UI', () => {
         scenes: library.scenes.filter((chunk) => chunk.id !== 'extra2')
       }))
     )
-    expect(field('추가 청크·문구 순서 현재 선택').textContent).toContain('삭제된 청크')
+    expect(field('문구 순서·미리보기 현재 선택').textContent).toContain('삭제된 청크')
     write.mockClear()
     await click('선택 조합 전부 예약')
     expect(store.getState().workspace.library.reservations).toHaveLength(0)

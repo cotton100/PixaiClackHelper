@@ -1,0 +1,57 @@
+.px-scene-material-split {
+  display: grid;
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.px-scene-material-slot {
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.px-scene-material-slot > .px-pane {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.px-scene-material-divider {
+  position: relative;
+  cursor: row-resize;
+  touch-action: none;
+  user-select: none;
+}
+
+.px-scene-material-divider::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 12px;
+  right: 12px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--px-line);
+}
+
+.px-scene-material-divider:hover::after,
+.px-scene-material-divider:focus-visible::after {
+  background: var(--px-accent);
+}
+
+.px-scene-material-notice {
+  position: absolute;
+  bottom: 6px;
+  left: 12px;
+  right: 12px;
+  padding: 5px 8px;
+  border: 1px solid var(--px-line);
+  border-radius: 4px;
+  color: var(--px-muted);
+  background: var(--px-surface);
+  pointer-events: none;
+}

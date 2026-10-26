@@ -1,5 +1,6 @@
 import { MaterialPreview } from './material-preview'
-import { ScenePromptOptions } from './scene-prompt-options'
+import { SceneExtraChunkPicker, ScenePromptOptions } from './scene-prompt-options'
+import { SceneMaterialSplit } from './scene-material-split'
 import { useUnsavedNavigation } from './unsaved-navigation'
 import { RatioMark } from './ratio-mark'
 import { useEffect, useState } from 'react'
@@ -335,81 +336,91 @@ export function Scenes({
             ? 0
             : workspace.options.ui?.collapsedPane?.scenes
         }
-        labels={['누구', '어떤 장면', '수량·편집']}
+        labels={['캐릭터·청크', '어떤 장면', '수량·편집']}
         onCollapse={(index) => void savePaneUI(store, 'scenes', undefined, index).catch(() => {})}
         onSave={(widths) => void savePaneUI(store, 'scenes', widths).catch(() => {})}
       >
-        <section className="px-pane" aria-label="누구">
-          <header>
-            <h2>1. 캐릭터 선택</h2>
-            <span>{plan.rows.length}명 선택</span>
-          </header>
-          <input
-            aria-label="캐릭터·출연 검색"
-            placeholder="캐릭터·출연 검색"
-            value={rowSearch}
-            onChange={(event) => setRowSearch(event.target.value)}
-          />
-          <div className="px-toolbar">
-            <button
-              onClick={() =>
-                setPlan({
-                  ...plan,
-                  rows: [
-                    ...plan.rows,
-                    ...visibleRows.filter(
-                      (row) => !plan.rows.some((item) => batchRowKey(item) === batchRowKey(row))
-                    )
-                  ]
-                })
-              }
-            >
-              행 전체 선택
-            </button>
-            <button onClick={() => setPlan({ ...plan, rows: [] })}>행 선택 해제</button>
-            <small>현재 목록 {visibleRows.length}개</small>
-          </div>
-          <div className="px-scroll">
-            <SortableItems
-              ids={plan.rows.map(batchRowKey)}
-              onReorder={(ids) =>
-                setPlan({
-                  ...plan,
-                  rows: ids.map((key) => plan.rows.find((row) => batchRowKey(row) === key)!)
-                })
-              }
-            >
-              {!!plan.rows.length && (
-                <div className="px-selected-rows">
-                  <h3>선택 순서 · 끌어서 변경</h3>
-                  {plan.rows.map((row) => {
-                    const item = rowItems.find((item) => item.id === batchRowKey(row))
-                    return item ? <div key={item.id}>{renderRow(item)}</div> : null
-                  })}
-                </div>
+        <SceneMaterialSplit>
+          <section className="px-pane" aria-label="누구">
+            <header>
+              <h2>1. 캐릭터 선택</h2>
+              <span>{plan.rows.length}명 선택</span>
+            </header>
+            <input
+              aria-label="캐릭터·출연 검색"
+              placeholder="캐릭터·출연 검색"
+              value={rowSearch}
+              onChange={(event) => setRowSearch(event.target.value)}
+            />
+            <div className="px-toolbar">
+              <button
+                onClick={() =>
+                  setPlan({
+                    ...plan,
+                    rows: [
+                      ...plan.rows,
+                      ...visibleRows.filter(
+                        (row) => !plan.rows.some((item) => batchRowKey(item) === batchRowKey(row))
+                      )
+                    ]
+                  })
+                }
+              >
+                행 전체 선택
+              </button>
+              <button onClick={() => setPlan({ ...plan, rows: [] })}>행 선택 해제</button>
+              <small>현재 목록 {visibleRows.length}개</small>
+            </div>
+            <div className="px-scroll">
+              <SortableItems
+                ids={plan.rows.map(batchRowKey)}
+                onReorder={(ids) =>
+                  setPlan({
+                    ...plan,
+                    rows: ids.map((key) => plan.rows.find((row) => batchRowKey(row) === key)!)
+                  })
+                }
+              >
+                {!!plan.rows.length && (
+                  <div className="px-selected-rows">
+                    <h3>선택 순서 · 끌어서 변경</h3>
+                    {plan.rows.map((row) => {
+                      const item = rowItems.find((item) => item.id === batchRowKey(row))
+                      return item ? <div key={item.id}>{renderRow(item)}</div> : null
+                    })}
+                  </div>
+                )}
+                <ChunkList
+                  chunks={rowItems}
+                  folders={library.characterFolders ?? []}
+                  label="캐릭터"
+                  search={rowSearch}
+                  selectedIds={plan.rows.map(batchRowKey)}
+                  onSelectionChange={(ids) =>
+                    setPlan((current) => selectSceneRows(current, rows, ids))
+                  }
+                  render={(item) =>
+                    plan.rows.some((row) => batchRowKey(row) === item.id) ? null : renderRow(item)
+                  }
+                />
+              </SortableItems>
+              {!rows.length && (
+                <p className="px-empty">
+                  라이브러리에서 캐릭터와 기본 프리셋을 먼저 저장해 주세요.
+                </p>
               )}
-              <ChunkList
-                chunks={rowItems}
-                folders={library.characterFolders ?? []}
-                label="캐릭터"
-                search={rowSearch}
-                selectedIds={plan.rows.map(batchRowKey)}
-                onSelectionChange={(ids) =>
-                  setPlan((current) => selectSceneRows(current, rows, ids))
-                }
-                render={(item) =>
-                  plan.rows.some((row) => batchRowKey(row) === item.id) ? null : renderRow(item)
-                }
-              />
-            </SortableItems>
-            {!rows.length && (
-              <p className="px-empty">라이브러리에서 캐릭터와 기본 프리셋을 먼저 저장해 주세요.</p>
-            )}
-          </div>
-          <small>
-            체크한 순서대로 순회합니다. 선택한 행의 손잡이를 끌어 순서를 바꿀 수 있습니다.
-          </small>
-        </section>
+            </div>
+            <small>
+              체크한 순서대로 순회합니다. 선택한 행의 손잡이를 끌어 순서를 바꿀 수 있습니다.
+            </small>
+          </section>
+          <SceneExtraChunkPicker
+            library={library}
+            plan={plan}
+            onChange={setPlan}
+            disabled={busy || saving}
+          />
+        </SceneMaterialSplit>
         <section className="px-pane" aria-label="어떤 장면">
           <header>
             <h2>2. 씬 선택</h2>

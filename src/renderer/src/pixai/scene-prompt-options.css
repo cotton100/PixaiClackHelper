@@ -26,7 +26,6 @@
   overflow-wrap: anywhere;
 }
 
-.px-scene-extra-library,
 .px-scene-extra-selected {
   max-height: 240px;
   overflow: auto;
