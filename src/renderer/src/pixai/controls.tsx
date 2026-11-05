@@ -1,4 +1,5 @@
 import { ComposeGroup } from './compose-group'
+import { TagTextarea } from './tag-textarea'
 import { RatioMark } from './ratio-mark'
 import { Children, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
@@ -422,18 +423,18 @@ export function PromptFields({
     <>
       <label>
         {labels?.prompt ?? '프롬프트'}
-        <textarea
-          aria-label={labels?.prompt}
+        <TagTextarea
+          aria-label={labels?.prompt ?? '프롬프트'}
           value={prompt}
-          onChange={(event) => onChange({ prompt: event.target.value, negativePrompt })}
+          onValueChange={(value) => onChange({ prompt: value, negativePrompt })}
         />
       </label>
       <label>
         {labels?.negativePrompt ?? '네거티브'}
-        <textarea
-          aria-label={labels?.negativePrompt}
+        <TagTextarea
+          aria-label={labels?.negativePrompt ?? '네거티브'}
           value={negativePrompt}
-          onChange={(event) => onChange({ prompt, negativePrompt: event.target.value })}
+          onValueChange={(value) => onChange({ prompt, negativePrompt: value })}
         />
       </label>
     </>

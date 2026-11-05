@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 const channels = new Set([
+  'tags:search',
   'pixai:workspace-read',
   'pixai:workspace-write',
   'pixai:image-info',

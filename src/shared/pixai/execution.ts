@@ -85,6 +85,10 @@ export interface SceneThumbnailStatus {
   images?: SceneThumbnail[]
 }
 export interface PixaiInvokeMap {
+  'tags:search': {
+    req: { query: string; limit?: number }
+    res: { items: { tag: string; count: number; type: string }[] }
+  }
   'pixai:workspace-read': {
     req: Record<string, never>
     res: { value: string | null; revision: string }
