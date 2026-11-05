@@ -28,7 +28,18 @@ function load(): TagEntry[] {
   return tags
 }
 
-export function searchTags(query: string, limit = 8): TagEntry[] {
+export function searchTags(query: unknown, limit: unknown = 8): TagEntry[] {
+  // This function also receives IPC input. Reject malformed or unbounded searches
+  // before loading the bundled data; a renderer cannot request the whole list.
+  if (
+    typeof query !== 'string' ||
+    query.length > 200 ||
+    typeof limit !== 'number' ||
+    !Number.isInteger(limit) ||
+    limit < 1 ||
+    limit > 20
+  )
+    return []
   const q = query.trim().toLowerCase().replace(/_/g, ' ')
   if (q.length < 2) return []
   const all = load()

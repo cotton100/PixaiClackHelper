@@ -5,6 +5,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { initDb, closeDb, getDb } from '../db'
 import { getSetting, setSetting } from '../db/settings'
+import { searchTags } from '../tags'
 import { PixaiClient } from './client'
 import { PixaiRunner } from './runner'
 import { PixaiVault } from './vault'
@@ -141,6 +142,7 @@ if (ownsInstance)
         })
       }
       handle('pixai:status', () => runner.status())
+      handle('tags:search', (req) => ({ items: searchTags(req?.query, req?.limit) }))
       handle('pixai:workspace-read', () => readWorkspace(getDb()))
       handle('pixai:workspace-write', (req) => writeWorkspace(getDb(), req))
       handle('pixai:image-info', async (req) => {
@@ -310,12 +312,15 @@ if (ownsInstance)
           const status = await window.nais.invoke('pixai:status', {});
           const updates = await window.nais.invoke('pixai:update-status', {});
           const forbidden = await window.nais.invoke('account:list', {}).then(() => false, () => true);
+          const tags = await window.nais.invoke('tags:search', {query: 'long_h', limit: 8});
+          const invalidTags = await window.nais.invoke('tags:search', {query: {}, limit: 10000});
           const settings = Array.from(document.querySelectorAll('.px-nav button')).find(button => button.textContent === '설정');
           settings?.click();
           await new Promise(resolve => setTimeout(resolve, 100));
           return document.title === ${JSON.stringify(identity.productName + (installedChannel === 'beta' ? ' Beta' : ''))} && !!document.querySelector('.px-content') &&
             !!document.querySelector('input[type="password"]') &&
             !connection.connected && status.jobs.length === 0 && forbidden &&
+            tags.items.length === 8 && tags.items[0].tag === 'long hair' && invalidTags.items.length === 0 &&
             updates.currentVersion === ${JSON.stringify(app.getVersion())} && updates.phase === 'idle' &&
             document.body.textContent.includes('앱 업데이트 · 버전 선택');
         })()`

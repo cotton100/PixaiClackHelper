@@ -1,0 +1,82 @@
+.px-tag-popup {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--px-line, #3e4b4c);
+  border-radius: 8px;
+  background: var(--px-surface, #202627);
+  color: var(--px-text, #e8eeee);
+  box-shadow: 0 8px 28px #0006;
+  font:
+    14px/1.4 'Segoe UI',
+    'Malgun Gothic',
+    sans-serif;
+  -webkit-app-region: no-drag;
+}
+.px-tag-popup,
+.px-tag-popup * {
+  box-sizing: border-box;
+}
+.px-tag-list {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px;
+}
+.px-app .px-tag-list button,
+.px-tag-list button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.px-app .px-tag-list button[aria-selected='true'],
+.px-tag-list button[aria-selected='true'] {
+  border-color: var(--px-accent, #80cfbd);
+  background: var(--px-selected, #294b43);
+}
+.px-tag-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.px-tag-category,
+.px-tag-count {
+  flex: none;
+  color: var(--px-muted, #aebfc0);
+  font-size: 12px;
+}
+.px-tag-category[data-kind='artist'] {
+  color: #efb28f;
+}
+.px-tag-category[data-kind='character'] {
+  color: #92d7be;
+}
+.px-tag-category[data-kind='copyright'] {
+  color: #a0cbea;
+}
+.px-tag-count {
+  width: 42px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.px-tag-help {
+  flex: none;
+  padding: 6px 10px;
+  border-top: 1px solid var(--px-line, #3e4b4c);
+  color: var(--px-muted, #aebfc0);
+  font-size: 12px;
+}
