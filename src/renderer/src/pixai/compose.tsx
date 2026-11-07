@@ -5,6 +5,8 @@ import { useState } from 'react'
 import { Star, X } from 'lucide-react'
 import {
   composePrompts,
+  mergeCharacterLoras,
+  characterWithoutLoras,
   normalizeSnapshot,
   presetHasText,
   resolvePresetCommon,
@@ -18,6 +20,8 @@ import type { ComposeDraft } from './composition'
 import { ChunkList } from './chunk-list'
 import { resolveImageOptions } from '@shared/pixai/generation-options'
 import { GenerationSettings } from './generation-settings'
+import { validateApiLoras } from '@shared/pixai/execution'
+import { LoraSummary } from './lora-summary'
 
 export function Compose({
   store,
@@ -41,6 +45,21 @@ export function Compose({
   const [notice, setNotice] = useState('')
   const preset = library.presets.find((item) => item.id === draft.presetId)
   const character = library.characters.find((item) => item.id === draft.characterId)
+  let merged: ReturnType<typeof mergeCharacterLoras> = { loras: [], sources: [] }
+  let mergeError = ''
+  let loraError = ''
+  try {
+    merged = mergeCharacterLoras(preset?.loras ?? [], character?.loras)
+  } catch (error) {
+    mergeError = error instanceof Error ? error.message : 'LoRA 조합을 확인해 주세요.'
+  }
+  if (!mergeError && preset && character?.loras?.length) {
+    try {
+      validateApiLoras(merged.loras)
+    } catch (error) {
+      loraError = error instanceof Error ? error.message : 'LoRA 설정을 확인해 주세요.'
+    }
+  }
   const chunks = draft.sceneIds.map(
     (id) =>
       draft.card?.chunks.find((item) => item.id === id) ??
@@ -51,16 +70,18 @@ export function Compose({
   const commonName =
     library.commonPresets?.find((item) => item.id === preset?.commonPresetId)?.name ?? '기본 공통문'
   const commonLabel = preset && presetHasText(preset) ? commonName + ' + 프리셋 문구' : commonName
-  const prompts = composePrompts(
-    resolvePresetCommon(library, preset),
-    character ?? { prompt: '', negativePrompt: '' },
-    completeChunks,
-    preset ?? { loras: [] },
-    draft.triggerPosition === 'end'
-      ? 'end'
-      : Math.min(draft.triggerPosition, completeChunks.length + 2),
-    draft.card?.extra ? { scene: draft.card.extra } : {}
-  )
+  const prompts = mergeError
+    ? { prompt: '', negativePrompt: '' }
+    : composePrompts(
+        resolvePresetCommon(library, preset),
+        character ?? { prompt: '', negativePrompt: '' },
+        completeChunks,
+        { ...preset, loras: merged.loras },
+        draft.triggerPosition === 'end'
+          ? 'end'
+          : Math.min(draft.triggerPosition, completeChunks.length + 2),
+        draft.card?.extra ? { scene: draft.card.extra } : {}
+      )
   function toggle(id: string): void {
     const ids = draft.sceneIds.includes(id)
       ? draft.sceneIds.filter((item) => item !== id)
@@ -82,6 +103,7 @@ export function Compose({
   }
   function validate(): void {
     if (!preset || !character) throw new Error('프리셋과 캐릭터를 골라 주세요.')
+    if (mergeError || loraError) throw new Error(mergeError || loraError)
     if (chunks.some((chunk) => !chunk)) throw new Error('연결이 끊긴 청크를 확인해 주세요.')
     if (!Number.isInteger(draft.count) || draft.count < 1 || draft.count > 100)
       throw new Error('생성 횟수는 1~100의 정수여야 합니다.')
@@ -127,8 +149,8 @@ export function Compose({
       imageOptions,
       snapshot: normalizeSnapshot({
         common: resolvePresetCommon(library, preset),
-        preset,
-        character,
+        preset: { ...preset!, loras: merged.loras },
+        character: characterWithoutLoras(character!),
         chunks: completeChunks.map(({ id, name, prompt, negativePrompt }) => ({
           id,
           name,
@@ -502,6 +524,12 @@ export function Compose({
             <summary>네거티브 미리보기</summary>
             <textarea readOnly aria-label="네거티브 미리보기" value={prompts.negativePrompt} />
           </details>
+          {mergeError || loraError ? (
+            <p role="alert" className="px-error">
+              {mergeError || loraError}
+            </p>
+          ) : null}
+          {!mergeError && <LoraSummary loras={merged.loras} sources={merged.sources} />}
         </div>
         <footer>
           <button
@@ -553,7 +581,7 @@ export function Compose({
         <div className="px-toolbar">
           <button
             className="px-primary px-grow"
-            disabled={busy}
+            disabled={busy || !!mergeError || !!loraError}
             onClick={() => {
               const at = Date.now()
               void run(() => reserve(at), '조합을 예약했습니다. 아직 생성하지 않았습니다.')

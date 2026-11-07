@@ -12,12 +12,12 @@ export function MaterialPreview({
   item: Partial<ExtraText> & Partial<Pick<Preset, 'model' | 'loras' | 'commonPresetId'>>
   library?: Library
 }): React.JSX.Element {
-  const configuration = item.model
-    ? [
-        item.model.name || item.model.versionId,
-        ...(item.loras ?? []).map((lora) => (lora.name || lora.id) + ' × ' + lora.weight)
-      ].join(' · ')
-    : ''
+  const configuration = [
+    item.model ? item.model.name || item.model.versionId : '',
+    ...(item.loras ?? []).map((lora) => (lora.name || lora.id) + ' × ' + lora.weight)
+  ]
+    .filter(Boolean)
+    .join(' · ')
   const common = library && item.model ? resolvePresetCommon(library, item) : undefined
   const negative = [common?.negativePrompt, item.negativePrompt].filter(Boolean).join(', ')
   const positive = [

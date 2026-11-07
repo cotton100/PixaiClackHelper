@@ -2,6 +2,7 @@ import {
   API_RATIOS,
   normalizeSettingsOptions,
   type ExpandedRequest,
+  type LoraRef,
   type SettingsOptions
 } from './library'
 import type { ModelLinkInfo } from './model-link'
@@ -132,6 +133,20 @@ export function numericId(value: unknown): string {
     throw new Error('공식 API ID는 숫자 문자열이어야 합니다.')
   return value
 }
+export function validateApiLoras(loras: LoraRef[]): ApiPayload['loras'] {
+  if (!Array.isArray(loras) || loras.length > 5)
+    throw new Error('모델과 LoRA(최대 5개)를 확인해 주세요.')
+  const seen = new Set<string>()
+  return loras.map((lora) => {
+    const modelId = numericId(lora.versionId)
+    if (seen.has(modelId)) throw new Error('같은 LoRA 버전이 중복됐습니다.')
+    seen.add(modelId)
+    if (!Number.isFinite(lora.weight) || lora.weight < 0 || lora.weight > 1)
+      throw new Error('공식 API LoRA 가중치는 0~1입니다. 자동 보정하지 않습니다.')
+    return { modelId, weight: lora.weight, triggerWords: '' }
+  })
+}
+
 export function buildPayload(job: QueuedJob, randomSeed: number): ApiPayload {
   const options = normalizeSettingsOptions(job.options)
   const api = options.api ?? {}
@@ -151,7 +166,6 @@ export function buildPayload(job: QueuedJob, randomSeed: number): ApiPayload {
   const seed = api.seed === '' || api.seed === undefined ? randomSeed : Number(api.seed)
   if (!Number.isInteger(seed) || seed < 0 || seed > 4294967295)
     throw new Error('시드 범위를 확인해 주세요.')
-  const seen = new Set<string>()
   const payload: ApiPayload = {
     modelVersionId: numericId(config.model.versionId),
     prompt: job.request.prompt,
@@ -161,14 +175,7 @@ export function buildPayload(job: QueuedJob, randomSeed: number): ApiPayload {
     batchSize: batchSize as 1 | 4,
     seed,
     promptHelper: 'disable',
-    loras: config.loras.map((lora) => {
-      const modelId = numericId(lora.versionId)
-      if (seen.has(modelId)) throw new Error('같은 LoRA 버전이 중복됐습니다.')
-      seen.add(modelId)
-      if (!Number.isFinite(lora.weight) || lora.weight < 0 || lora.weight > 1)
-        throw new Error('공식 API LoRA 가중치는 0~1입니다. 자동 보정하지 않습니다.')
-      return { modelId, weight: lora.weight, triggerWords: '' }
-    })
+    loras: validateApiLoras(config.loras)
   }
   if (mode) {
     if (!['lite', 'standard', 'pro', 'ultra'].includes(String(mode)))

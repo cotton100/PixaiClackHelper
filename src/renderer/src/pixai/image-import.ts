@@ -1,5 +1,10 @@
 import { imageInfoFields, type ImageInfoFields } from '@shared/pixai/image-info'
-import { composePrompts, resolvePresetCommon, type Preset } from '@shared/pixai/library'
+import {
+  composePrompts,
+  mergeCharacterLoras,
+  resolvePresetCommon,
+  type Preset
+} from '@shared/pixai/library'
 import { resolveImageOptions } from '@shared/pixai/generation-options'
 import { emptyDraft } from './composition'
 import type { Workspace } from './store'
@@ -48,33 +53,43 @@ export function importImageComposition(
     library = workspace.library
   const oldPreset = library.presets.find((v) => v.id === draft.presetId)
   const oldCharacter = library.characters.find((v) => v.id === draft.characterId)
-  const chunks = draft.sceneIds.map(
-    (id) => draft.card?.chunks.find((v) => v.id === id) ?? library.scenes.find((v) => v.id === id)
-  )
-  if (chunks.some((v) => !v)) throw new Error('현재 조합의 청크 연결부터 확인해 주세요.')
-  const current = composePrompts(
-    resolvePresetCommon(library, oldPreset),
-    oldCharacter ?? { prompt: '', negativePrompt: '' },
-    chunks.filter((v): v is NonNullable<typeof v> => !!v),
-    oldPreset ?? { loras: [] },
-    draft.triggerPosition,
-    draft.card?.extra ? { scene: draft.card.extra } : {}
-  )
   if (
     (selected.prompt && f.prompt === undefined) ||
     (selected.negativePrompt && f.negativePrompt === undefined)
   )
     throw new Error('선택한 문구가 파일에 없습니다.')
+  // Resolve only the old values that this import actually retains. In particular,
+  // a complete replacement must remain possible when the old LoRAs conflict.
+  const mergedLoras =
+    !selected.model || !selected.prompt
+      ? mergeCharacterLoras(oldPreset?.loras ?? [], oldCharacter?.loras).loras
+      : []
+  let current = { prompt: '', negativePrompt: '' }
+  if (!selected.prompt || !selected.negativePrompt) {
+    const chunks = draft.sceneIds.map(
+      (id) => draft.card?.chunks.find((v) => v.id === id) ?? library.scenes.find((v) => v.id === id)
+    )
+    if (chunks.some((v) => !v)) throw new Error('현재 조합의 청크 연결부터 확인해 주세요.')
+    current = composePrompts(
+      resolvePresetCommon(library, oldPreset),
+      oldCharacter ?? { prompt: '', negativePrompt: '' },
+      chunks.filter((v): v is NonNullable<typeof v> => !!v),
+      { ...oldPreset, loras: mergedLoras },
+      draft.triggerPosition,
+      draft.card?.extra ? { scene: draft.card.extra } : {}
+    )
+  }
   const preset = selected.model
-    ? importedPreset(f, name, idFactory())
+    ? importedPreset(f, name, '')
     : oldPreset && {
-        id: idFactory(),
+        id: '',
         name,
         model: structuredClone(oldPreset.model),
-        loras: oldPreset.loras.map((lora) => ({ ...lora, triggerWords: '' }))
+        loras: mergedLoras.map((lora) => ({ ...lora, triggerWords: '' }))
       }
   if (!preset)
     throw new Error('PixAI 모델 정보가 없습니다. 조합 예약에서 사용할 프리셋을 먼저 골라 주세요.')
+  preset.id = idFactory()
   const common = {
     id: idFactory(),
     name: `${name} · 가져온 문구 그대로`,
