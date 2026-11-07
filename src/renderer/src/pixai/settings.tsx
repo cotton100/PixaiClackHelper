@@ -86,8 +86,14 @@ export function BackupSettings({
       }
     }
   }, [workspace.library, exportSelection, exportFolders])
-  const dropped = exportForScript(workspace.library).dropped
-  if (workspace.options.ui) dropped.keys.push('options.ui')
+  let dropped: ReturnType<typeof exportForScript>['dropped'] | null = null
+  let scriptExportError = ''
+  try {
+    dropped = exportForScript(workspace.library).dropped
+    if (workspace.options.ui) dropped.keys.push('options.ui')
+  } catch (error) {
+    scriptExportError = error instanceof Error ? error.message : '구형 백업을 만들지 못했습니다.'
+  }
   const names: Record<string, string> = {
     sceneFolders: '씬 그룹',
     commonPresets: '공통문 세트 목록',
@@ -357,35 +363,41 @@ export function BackupSettings({
           </button>
         </div>
         <small>
-          스크립트용은 호환성을 위해 기존 전체 백업 형식을 사용합니다. 위 선택 범위는 앱용에
-          적용됩니다.
+          스크립트용은 구형 호환 전체 백업입니다. 최신 앱과 스크립트 사이에서는 앱용 선택 백업을
+          사용하세요. 위 선택 범위는 앱용에 적용됩니다.
         </small>
         {exportTarget && (
           <div className="px-confirm">
             <h3>{exportTarget === 'app' ? '앱용' : '스크립트용'} 설정 백업</h3>
             {exportTarget === 'script' ? (
-              <>
-                <p>
-                  추가 문구가 포함된 예약 {dropped.reservations}개를 제외합니다
-                  {dropped.reservationsWithPresetText > 0 &&
-                    ` (그중 프리셋 공통 문구가 든 예약 ${dropped.reservationsWithPresetText}개)`}
-                  .
-                </p>
-                {dropped.presetsWithText.length > 0 && (
+              dropped ? (
+                <>
                   <p>
-                    프리셋 {dropped.presetsWithText.map((name) => `「${name}」`).join(', ')}의 추가
-                    문구와 공통문 세트 연결은 스크립트가 읽지 못해 빠집니다. 새 조합에는 기본
-                    공통문이 적용됩니다
-                    {dropped.combinationsWithPresetText > 0 &&
-                      ` (이 프리셋을 쓰는 최근 조합·즐겨찾기 ${dropped.combinationsWithPresetText}개도 연결 문구 없이 불러와집니다)`}
+                    추가 문구가 포함된 예약 {dropped.reservations}개를 제외합니다
+                    {dropped.reservationsWithPresetText > 0 &&
+                      ` (그중 프리셋 공통 문구가 든 예약 ${dropped.reservationsWithPresetText}개)`}
                     .
                   </p>
-                )}
-                <p>
-                  빠지는 항목: {dropped.keys.map((key) => names[key] ?? key).join(', ') || '없음'}
+                  {dropped.presetsWithText.length > 0 && (
+                    <p>
+                      프리셋 {dropped.presetsWithText.map((name) => `「${name}」`).join(', ')}의
+                      추가 문구와 공통문 세트 연결은 스크립트가 읽지 못해 빠집니다. 새 조합에는 기본
+                      공통문이 적용됩니다
+                      {dropped.combinationsWithPresetText > 0 &&
+                        ` (이 프리셋을 쓰는 최근 조합·즐겨찾기 ${dropped.combinationsWithPresetText}개도 연결 문구 없이 불러와집니다)`}
+                      .
+                    </p>
+                  )}
+                  <p>
+                    빠지는 항목: {dropped.keys.map((key) => names[key] ?? key).join(', ') || '없음'}
+                  </p>
+                  <small>앱의 원본은 그대로 보관됩니다.</small>
+                </>
+              ) : (
+                <p role="alert" className="px-error">
+                  {scriptExportError}
                 </p>
-                <small>앱의 원본은 그대로 보관됩니다.</small>
-              </>
+              )
             ) : (
               <>
                 <p>
@@ -405,8 +417,8 @@ export function BackupSettings({
                 </p>
                 {selectedExport.error && <p className="px-error">{selectedExport.error}</p>}
                 <small>
-                  폴더 선택 백업은 폴더 백업 기능이 있는 앱에서 불러와 주세요. 예전 앱은 이 형식을
-                  읽지 못합니다. 스크립트에서는 앱용 선택 백업을 읽을 수 없습니다.
+                  선택 백업을 지원하는 최신 앱·스크립트에서 불러와 주세요. 캐릭터 LoRA가 있는 백업은
+                  양쪽 모두 캐릭터 LoRA 지원 버전이 필요합니다.
                 </small>
               </>
             )}
@@ -415,6 +427,7 @@ export function BackupSettings({
               onClick={download}
               disabled={
                 busy ||
+                (exportTarget === 'script' && !!scriptExportError) ||
                 (exportTarget === 'app' &&
                   (!selectedExport.value || !Object.values(exportSelection).some(Boolean)))
               }

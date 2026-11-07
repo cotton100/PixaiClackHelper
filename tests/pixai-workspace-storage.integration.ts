@@ -8,6 +8,11 @@ import {
   readWorkspace,
   writeWorkspace
 } from '../src/main/pixai/workspace-storage'
+import { appendBatchReservations, expandBatchPlan } from '../src/shared/pixai/batch-reserve'
+import { expandReservations } from '../src/shared/pixai/library'
+import { buildPayload } from '../src/shared/pixai/execution'
+import { emptyWorkspace, readWorkspace as restoreWorkspace } from '../src/renderer/src/pixai/store'
+import { pixaiLibrary } from './fixtures/pixai-workspace'
 
 const key = 'pixais.workspace.v1'
 let directory: string
@@ -148,4 +153,65 @@ it('holds the SQLite writer lock until the matching workspace update has committ
   expect(raw(external)).toEqual({ value: '{"fixture":"saved"}' })
   replace('{"fixture":"after commit"}')
   expect(raw()).toEqual({ value: '{"fixture":"after commit"}' })
+})
+
+it('preserves character LoRAs and frozen batch jobs through a real database reopen and API assembly', () => {
+  const source = pixaiLibrary()
+  source.characters[0].loras = [
+    { id: '31', name: 'Character fixture', versionId: '310', weight: 0.7, triggerWords: 'hero' }
+  ]
+  let sequence = 0
+  const idFactory = (): string => `fixture-${++sequence}`
+  const expansion = expandBatchPlan(
+    source,
+    {
+      id: 'plan',
+      name: 'Fixture batch',
+      rows: [{ kind: 'character', id: 'c1' }],
+      columns: ['sc1'],
+      count: 1,
+      exceptions: {},
+      order: 'byRow'
+    },
+    { idFactory }
+  )
+  expect(expansion.problems).toEqual([])
+  const library = appendBatchReservations(source, expansion)
+  const [request] = expandReservations(library, { idFactory })
+  const options = { maxCredits: null, filePrefix: '', repeat: 1, imageCount: 4 }
+  const job = { request, imageCount: 4, options }
+  const expectedPayload = buildPayload(job, 7)
+
+  // The editable character changes after reservation; only future work should see this edit.
+  library.characters[0].loras![0].weight = 0.9
+  library.characters[0].loras![0].triggerWords = 'new-hero'
+  const workspace = { ...emptyWorkspace(), library, options, jobs: [job] }
+  const before = readWorkspace(reader)
+  const saved = writeWorkspace(reader, {
+    value: JSON.stringify(workspace),
+    expectedRevision: before.revision
+  })
+  expect(saved.saved).toBe(true)
+  reader.close()
+  reader = new Database(join(directory, 'fixture.db'))
+  const persisted = readWorkspace(reader)
+  if (!saved.saved) throw new Error('Expected save')
+  expect(persisted.revision).toBe(saved.revision)
+  const restored = restoreWorkspace(persisted.value)
+
+  expect(restored.library.characters[0].loras).toEqual(library.characters[0].loras)
+  expect(restored.library.reservations[0].snapshot!.preset.loras).toEqual([
+    source.presets[0].loras[0],
+    { id: '31', name: 'Character fixture', versionId: '310', weight: 0.7, triggerWords: 'hero' }
+  ])
+  expect(restored.library.reservations[0].snapshot!.character).not.toHaveProperty('loras')
+  expect(restored.jobs[0].request.composition.character).not.toHaveProperty('loras')
+  expect(buildPayload(restored.jobs[0], 7)).toEqual(expectedPayload)
+  expect(expectedPayload).toMatchObject({
+    prompt: 'quality, trigger, hero, alice, smile',
+    loras: [
+      { modelId: '200', weight: 0.5, triggerWords: '' },
+      { modelId: '310', weight: 0.7, triggerWords: '' }
+    ]
+  })
 })

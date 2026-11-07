@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { X } from 'lucide-react'
 import {
   composePrompts,
+  mergeCharacterLoras,
   DEFAULT_BATCH_PROMPT_ORDER,
   type BatchPlan,
   type BatchPromptBlock,
@@ -13,6 +14,7 @@ import { ComposeGroup } from './compose-group'
 import { SortableItem, SortableItems } from './controls'
 import { MaterialPreview } from './material-preview'
 import './scene-prompt-options.css'
+import { LoraSummary } from './lora-summary'
 
 const blockNames: Record<BatchPromptBlock, string> = {
   character: '캐릭터',
@@ -121,6 +123,21 @@ export function ScenePromptOptions({
   const chunkById = new Map(library.scenes.map((chunk) => [chunk.id, chunk]))
   const selectedNames = ids.map((id) => chunkById.get(id)?.name ?? '삭제된 청크')
   const frozen = sample?.snapshot
+  let sources: ReturnType<typeof mergeCharacterLoras>['sources'] | undefined
+  if (sample && frozen) {
+    const preset = library.presets.find((item) => item.id === sample.presetId)
+    const character = library.characters.find((item) => item.id === sample.characterId)
+    if (preset && character) {
+      try {
+        const merged = mergeCharacterLoras(preset.loras, character.loras)
+        // A saved sample must not acquire source labels from subsequently edited materials.
+        if (JSON.stringify(merged.loras) === JSON.stringify(frozen.preset.loras))
+          sources = merged.sources
+      } catch {
+        // Display the frozen list even when current materials would now conflict.
+      }
+    }
+  }
   const prompt = frozen
     ? composePrompts(
         frozen.common,
@@ -228,6 +245,7 @@ export function ScenePromptOptions({
               <pre aria-label="씬 조합 네거티브 미리보기">
                 {prompt.negativePrompt || '문구 없음'}
               </pre>
+              <LoraSummary loras={frozen!.preset.loras} sources={sources} />
             </>
           ) : (
             <p className="px-hint">캐릭터와 씬을 고르면 첫 조합의 문구를 확인할 수 있습니다.</p>

@@ -10,6 +10,7 @@ import { PromptFields, SortableItem, SortableItems, SplitPanes } from './control
 import { savePaneUI, type PixaiStore } from './store'
 import { ChunkList } from './chunk-list'
 import { ModelLinkInput } from './model-link'
+import { LoraEditor } from './lora-editor'
 
 type Kind = 'characters' | 'presets' | 'scenes'
 type Material = Character | Chunk | Preset
@@ -357,6 +358,7 @@ export function LibraryEditor({ store }: { store: PixaiStore }): React.JSX.Eleme
                     )}
                     <button
                       className="px-library-item"
+                      aria-label={chunk.name}
                       aria-pressed={selected === chunk.id}
                       onClick={() =>
                         guard.request(() => {
@@ -576,9 +578,6 @@ function MaterialEditor({
 }): React.JSX.Element {
   const { workspace, busy } = store()
   const [draft, setDraft] = useState(item)
-  const [loraKeys, setLoraKeys] = useState(() =>
-    'model' in item ? item.loras.map(() => crypto.randomUUID()) : []
-  )
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [error, setError] = useState('')
   const [newFolder, setNewFolder] = useState('')
@@ -737,127 +736,7 @@ function MaterialEditor({
                   </label>
                 </div>
               </details>
-              <details open>
-                <summary>LoRA</summary>
-                {draft.loras.map((lora, index) => (
-                  <fieldset key={loraKeys[index]} className="px-lora">
-                    <legend>LoRA {index + 1}</legend>
-                    <details>
-                      <summary>링크·ID·버전</summary>
-                      <ModelLinkInput
-                        label={`LoRA ${index + 1}`}
-                        onApply={(info) =>
-                          setDraft({
-                            ...draft,
-                            loras: draft.loras.map((entry, i) =>
-                              i === index
-                                ? {
-                                    id: info.id,
-                                    versionId: info.versionId,
-                                    name: info.name || (entry.id === info.id ? entry.name : ''),
-                                    weight: entry.weight,
-                                    ...(entry.id === info.id && entry.triggerWords
-                                      ? { triggerWords: entry.triggerWords }
-                                      : {})
-                                  }
-                                : entry
-                            )
-                          })
-                        }
-                      />
-                      {(['id', 'versionId'] as const).map((field) => (
-                        <label key={field}>
-                          {
-                            {
-                              name: '이름',
-                              id: 'LoRA ID',
-                              versionId: '버전 ID',
-                              triggerWords: '트리거 문구'
-                            }[field]
-                          }
-                          <input
-                            value={lora[field] ?? ''}
-                            onChange={(event) =>
-                              setDraft({
-                                ...draft,
-                                loras: draft.loras.map((entry, i) =>
-                                  i === index ? { ...entry, [field]: event.target.value } : entry
-                                )
-                              })
-                            }
-                          />
-                        </label>
-                      ))}
-                    </details>
-                    <div className="px-lora-row">
-                      {(['name', 'triggerWords'] as const).map((field) => (
-                        <label key={field}>
-                          {field === 'name' ? '이름' : '트리거 문구'}
-                          <input
-                            value={lora[field] ?? ''}
-                            onChange={(event) =>
-                              setDraft({
-                                ...draft,
-                                loras: draft.loras.map((entry, i) =>
-                                  i === index ? { ...entry, [field]: event.target.value } : entry
-                                )
-                              })
-                            }
-                          />
-                        </label>
-                      ))}
-                      <label>
-                        가중치
-                        <input
-                          type="number"
-                          step="0.05"
-                          min={-2}
-                          max={2}
-                          value={Number.isFinite(lora.weight) ? lora.weight : ''}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              loras: draft.loras.map((entry, i) =>
-                                i === index
-                                  ? {
-                                      ...entry,
-                                      weight:
-                                        event.target.value === '' ? NaN : Number(event.target.value)
-                                    }
-                                  : entry
-                              )
-                            })
-                          }
-                        />
-                      </label>
-                    </div>
-                    <small>
-                      트리거는 모델 설명을 확인해 입력하세요. 링크만으로는 자동 확정하지 않습니다.
-                    </small>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setLoraKeys(loraKeys.filter((_, i) => i !== index))
-                        setDraft({ ...draft, loras: draft.loras.filter((_, i) => i !== index) })
-                      }}
-                    >
-                      이 LoRA 빼기
-                    </button>
-                  </fieldset>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLoraKeys([...loraKeys, crypto.randomUUID()])
-                    setDraft({
-                      ...draft,
-                      loras: [...draft.loras, { id: '', name: '', weight: 0.7 }]
-                    })
-                  }}
-                >
-                  LoRA 추가
-                </button>
-              </details>
+              <LoraEditor value={draft.loras} onChange={(loras) => setDraft({ ...draft, loras })} />
               <details open>
                 <summary>이 프리셋의 공통 문구</summary>
                 <label>
@@ -904,23 +783,30 @@ function MaterialEditor({
                 onChange={(value) => setDraft({ ...draft, ...value })}
               />
               {kind === 'characters' && (
-                <label>
-                  기본 모델·LoRA 프리셋
-                  <select
-                    aria-label="기본 모델·LoRA 프리셋"
-                    value={(draft as Character).defaultPresetId ?? ''}
-                    onChange={(event) =>
-                      setDraft({ ...draft, defaultPresetId: event.target.value })
-                    }
-                  >
-                    <option value="">미지정 (구성마다 선택)</option>
-                    {workspace.library.presets.map((preset) => (
-                      <option key={preset.id} value={preset.id}>
-                        {preset.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <>
+                  <LoraEditor
+                    character
+                    value={(draft as Character).loras ?? []}
+                    onChange={(loras) => setDraft({ ...draft, loras })}
+                  />
+                  <label>
+                    기본 모델·LoRA 프리셋
+                    <select
+                      aria-label="기본 모델·LoRA 프리셋"
+                      value={(draft as Character).defaultPresetId ?? ''}
+                      onChange={(event) =>
+                        setDraft({ ...draft, defaultPresetId: event.target.value })
+                      }
+                    >
+                      <option value="">미지정 (구성마다 선택)</option>
+                      {workspace.library.presets.map((preset) => (
+                        <option key={preset.id} value={preset.id}>
+                          {preset.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </>
               )}
             </>
           )}

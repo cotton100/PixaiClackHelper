@@ -19,6 +19,8 @@ import {
   MAX_RESERVED_JOBS,
   batchCellKey,
   batchRowKey,
+  characterWithoutLoras,
+  mergeCharacterLoras,
   normalizeBatchPlan,
   normalizeImageOptions,
   normalizeLibrary,
@@ -33,6 +35,7 @@ import {
 } from './library'
 
 import { expansionBudget } from './expansion-budget'
+import { validateApiLoras } from './execution'
 
 const defaultIdFactory = (): string => globalThis.crypto.randomUUID()
 
@@ -178,6 +181,18 @@ function resolveRow(library: Library, row: BatchRow): ResolvedRow {
     problems.push(`「${name}」의 프리셋 ${presetId}이(가) 없습니다.`)
   if (characterId && !library.characters.some((item) => item.id === characterId))
     problems.push(`출연 「${name}」의 캐릭터 ${characterId}이(가) 없습니다.`)
+  const preset = library.presets.find((item) => item.id === presetId)
+  const character = library.characters.find((item) => item.id === characterId)
+  if (preset && character) {
+    try {
+      const merged = mergeCharacterLoras(preset.loras, character.loras)
+      if (character.loras?.length) validateApiLoras(merged.loras)
+    } catch (error) {
+      problems.push(
+        `「${name}」: ${error instanceof Error ? error.message : 'LoRA 조합을 확인해 주세요.'}`
+      )
+    }
+  }
   return {
     key,
     kind: row.kind,
@@ -364,8 +379,8 @@ export function expandBatchPlan(
         count,
         snapshot: normalizeSnapshot({
           common: resolvePresetCommon(library, preset),
-          preset,
-          character,
+          preset: { ...preset, loras: mergeCharacterLoras(preset.loras, character.loras).loras },
+          character: characterWithoutLoras(character),
           chunks: column.chunks,
           ...(Object.keys(extras).length ? { extras } : {}),
           ...(plan.extraChunkIds !== undefined ? { extraChunks } : {}),

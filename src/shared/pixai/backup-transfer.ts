@@ -6,6 +6,8 @@ import {
   normalizeSnapshot,
   stripFolder,
   resolvePresetCommon,
+  mergeCharacterLoras,
+  characterWithoutLoras,
   batchRowKey,
   batchCellKey,
   type Library,
@@ -329,8 +331,8 @@ function freezeReservation(library: Library, reservation: Reservation): Reservat
     ...reservation,
     snapshot: normalizeSnapshot({
       common: resolvePresetCommon(library, preset),
-      preset,
-      character,
+      preset: { ...preset, loras: mergeCharacterLoras(preset.loras, character.loras).loras },
+      character: characterWithoutLoras(character),
       chunks: chunks.map((chunk) => stripFolder(chunk!))
     })
   }

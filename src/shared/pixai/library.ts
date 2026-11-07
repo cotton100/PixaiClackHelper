@@ -56,6 +56,8 @@ export interface Character {
   name: string
   prompt: string
   negativePrompt: string
+  /** 캐릭터를 선택할 때 프리셋 LoRA와 함께 적용하는 전용 LoRA. */
+  loras?: LoraRef[]
   /** 기본 모델·LoRA 프리셋 (없으면 일괄 예약 때 행마다 지정) */
   defaultPresetId?: string
   folderId?: string
@@ -337,17 +339,15 @@ export function normalizeExtraText(value: unknown, label: string): ExtraText {
   }
 }
 
-export function validatePresetConfiguration(
+function normalizeLoras(
   value: unknown,
   options: { minLoraWeight?: number; maxLoraWeight?: number } = {}
-): { model: ModelRef; loras: LoraRef[] } {
-  const source = presetObject(value, '모델·LoRA 설정')
-  const model = presetObject(source.model, '모델')
+): LoraRef[] {
   const minWeight = options.minLoraWeight ?? -2
   const maxWeight = options.maxLoraWeight ?? 2
-  if (!Array.isArray(source.loras)) throw new Error('LoRA 목록 형식을 확인해 주세요.')
+  if (!Array.isArray(value)) throw new Error('LoRA 목록 형식을 확인해 주세요.')
   const seen = new Set<string>()
-  const loras = (source.loras as unknown[]).map((item) => {
+  return value.map((item) => {
     const entry = presetObject(item, 'LoRA')
     const id = presetIdentifier(entry.id, 'LoRA', true)
     if (seen.has(id)) throw new Error(`같은 LoRA가 중복됐습니다: ${id}`)
@@ -372,6 +372,80 @@ export function validatePresetConfiguration(
     }
     return lora
   })
+}
+
+export function normalizeCharacterLoras(value: unknown): LoraRef[] {
+  if (value === undefined) return []
+  if (!Array.isArray(value)) throw new Error('캐릭터 LoRA 목록 형식을 확인해 주세요.')
+  for (const item of value)
+    allowedKeys(
+      item,
+      '캐릭터 LoRA',
+      ['id', 'weight'],
+      ['id', 'name', 'weight', 'versionId', 'triggerWords']
+    )
+  return normalizeLoras(value)
+}
+
+export type LoraSource = 'preset' | 'character' | 'both'
+
+/** 저장용 합성만 수행한다. 공식 API의 0~1/버전 필수/5개 제한은 전송 전 별도 검사한다. */
+export function mergeCharacterLoras(
+  presetLoras: LoraRef[],
+  characterLoras?: LoraRef[]
+): { loras: LoraRef[]; sources: LoraSource[] } {
+  const loras = normalizeCharacterLoras(presetLoras)
+  const sources: LoraSource[] = loras.map(() => 'preset')
+  const additions = normalizeCharacterLoras(characterLoras)
+  // Older preset-only drafts may be API-invalid. Keep their editable/reservable
+  // state; the existing API boundary still rejects duplicate versions and weights.
+  if (!additions.length) return { loras, sources }
+  const byId = new Map(loras.map((item, index) => [item.id, index]))
+  const byVersion = new Map<string, string>()
+  for (const item of loras) {
+    if (!item.versionId) continue
+    if (byVersion.has(item.versionId))
+      throw new Error(`같은 LoRA 버전이 서로 다른 LoRA에 연결되어 있습니다: ${item.versionId}`)
+    byVersion.set(item.versionId, item.id)
+  }
+  for (const item of additions) {
+    const parent = item.versionId ? byVersion.get(item.versionId) : undefined
+    if (parent !== undefined && parent !== item.id)
+      throw new Error(`같은 LoRA 버전이 서로 다른 LoRA에 연결되어 있습니다: ${item.versionId}`)
+    const index = byId.get(item.id)
+    if (index !== undefined) {
+      const previous = loras[index]
+      if (
+        previous.versionId !== item.versionId ||
+        previous.weight !== item.weight ||
+        (previous.triggerWords ?? '') !== (item.triggerWords ?? '')
+      )
+        throw new Error(
+          `LoRA 「${item.name || previous.name || item.id}」의 프리셋·캐릭터 버전, 수치 또는 트리거가 다릅니다. 같은 설정으로 맞춰 주세요.`
+        )
+      sources[index] = 'both'
+    } else {
+      byId.set(item.id, loras.length)
+      loras.push(item)
+      sources.push('character')
+    }
+    if (item.versionId) byVersion.set(item.versionId, item.id)
+  }
+  return { loras, sources }
+}
+
+/** 예약의 LoRA는 preset 한 곳에만 고정한다. */
+export function characterWithoutLoras(character: Character): Character {
+  return omitKey(character, 'loras')
+}
+
+export function validatePresetConfiguration(
+  value: unknown,
+  options: { minLoraWeight?: number; maxLoraWeight?: number } = {}
+): { model: ModelRef; loras: LoraRef[] } {
+  const source = presetObject(value, '모델·LoRA 설정')
+  const model = presetObject(source.model, '모델')
+  const loras = normalizeLoras(source.loras, options)
   const normalizedModel: ModelRef = {
     id: presetIdentifier(model.id, '모델', true),
     name: presetText(model.name),
@@ -568,6 +642,8 @@ export function normalizeSnapshot(value: unknown): Snapshot {
     ['common', 'preset', 'character', 'chunks'],
     ['common', 'preset', 'character', 'chunks', 'extras', 'extraChunks', 'promptOrder']
   )
+  if (hasOwn(presetObject(source.character, '캐릭터 사본'), 'loras'))
+    throw new Error('예약 사본의 캐릭터 LoRA는 프리셋에 합쳐 저장해야 합니다.')
   const frozen = normalizeLibrary({
     version: 1,
     common: source.common,
@@ -663,6 +739,7 @@ export function normalizeLibrary(value: unknown): Library {
         prompt: presetText(item.prompt),
         negativePrompt: presetText(item.negativePrompt)
       }
+      if (hasOwn(item, 'loras')) character.loras = normalizeCharacterLoras(item.loras)
       if (hasOwn(item, 'defaultPresetId') && presetText(item.defaultPresetId))
         character.defaultPresetId = presetIdentifier(item.defaultPresetId, '기본 프리셋')
       if (hasOwn(item, 'folderId')) {
@@ -830,7 +907,7 @@ export function strictLibrary(value: unknown): Library {
   for (const preset of library.presets) resolvePresetCommon(library, preset)
   const fields = ['id', 'name', 'prompt', 'negativePrompt']
   for (const item of list('characters'))
-    allowedKeys(item, '캐릭터', fields, [...fields, 'defaultPresetId', 'folderId'])
+    allowedKeys(item, '캐릭터', fields, [...fields, 'defaultPresetId', 'folderId', 'loras'])
   for (const item of list('scenes')) allowedKeys(item, '청크', fields, [...fields, 'folderId'])
   for (const item of list('reservations')) {
     allowedKeys(
@@ -929,6 +1006,10 @@ export function exportForScript(value: unknown): {
   dropped: ScriptExportDropped
 } {
   const library = normalizeLibrary(value)
+  if (library.characters.some((character) => character.loras?.length))
+    throw new Error(
+      '구형 형식에서는 캐릭터 LoRA를 보존할 수 없습니다. 최신 전체/선택 백업을 사용해 주세요.'
+    )
   const dropped: ScriptExportDropped = {
     reservations: 0,
     reservationsWithPresetText: 0,
@@ -950,7 +1031,9 @@ export function exportForScript(value: unknown): {
     version: 1,
     common: library.common,
     presets: library.presets.map(presetForScript),
-    characters: library.characters.map((character) => omitKey(character, 'defaultPresetId')),
+    characters: library.characters.map((character) =>
+      omitKey(characterWithoutLoras(character), 'defaultPresetId')
+    ),
     chunkFolders: library.chunkFolders,
     scenes: library.scenes,
     reservations: library.reservations
@@ -1282,12 +1365,20 @@ export function expandReservations(
   const budget = expansionBudget()
   const prepared = library.reservations.map((reservation) => {
     const frozen = reservation.snapshot
-    const preset =
+    const sourcePreset =
       frozen?.preset ?? library.presets.find((item) => item.id === reservation.presetId)
-    const character =
+    const sourceCharacter =
       frozen?.character ?? library.characters.find((item) => item.id === reservation.characterId)
-    if (!preset) throw new Error(`예약 ${reservation.id}의 설정 프리셋이 없습니다.`)
-    if (!character) throw new Error(`예약 ${reservation.id}의 캐릭터가 없습니다.`)
+    if (!sourcePreset) throw new Error(`예약 ${reservation.id}의 설정 프리셋이 없습니다.`)
+    if (!sourceCharacter) throw new Error(`예약 ${reservation.id}의 캐릭터가 없습니다.`)
+    const preset =
+      frozen || !sourceCharacter.loras?.length
+        ? sourcePreset
+        : {
+            ...sourcePreset,
+            loras: mergeCharacterLoras(sourcePreset.loras, sourceCharacter.loras).loras
+          }
+    const character = characterWithoutLoras(sourceCharacter)
     const common = frozen?.common ?? resolvePresetCommon(library, preset)
     const chunks =
       frozen?.chunks ??
