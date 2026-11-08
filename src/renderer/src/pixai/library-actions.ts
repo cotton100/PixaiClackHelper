@@ -1,5 +1,11 @@
-import type { Library, Character, Chunk } from '@shared/pixai/library'
-type Kind = 'characters' | 'presets' | 'scenes'
+import { deleteCommonPreset, type Library } from '@shared/pixai/library'
+export type MaterialKind = 'characters' | 'presets' | 'scenes' | 'commonPresets'
+export const materialFolderKeys = {
+  characters: 'characterFolders',
+  presets: 'presetFolders',
+  scenes: 'chunkFolders',
+  commonPresets: 'commonPresetFolders'
+} as const
 
 /** Dragging an unchecked item must not silently include a different selection. */
 export function materialDragIds(
@@ -21,11 +27,11 @@ export function toggleFolderSelection(selectedIds: string[], visibleIds: string[
 
 export function renameMaterialFolder(
   library: Library,
-  kind: 'characters' | 'scenes',
+  kind: MaterialKind,
   id: string,
   name: string
 ): Library {
-  const key = kind === 'characters' ? 'characterFolders' : 'chunkFolders'
+  const key = materialFolderKeys[kind]
   if (!name.trim()) throw new Error('폴더 이름을 입력해 주세요.')
   if (!(library[key] ?? []).some((folder) => folder.id === id))
     throw new Error('이름을 바꿀 폴더를 확인해 주세요.')
@@ -37,17 +43,13 @@ export function renameMaterialFolder(
   }
 }
 
-export function deleteMaterialFolder(
-  library: Library,
-  kind: 'characters' | 'scenes',
-  id: string
-): Library {
+export function deleteMaterialFolder(library: Library, kind: MaterialKind, id: string): Library {
   if (!id) return library
-  const key = kind === 'characters' ? 'characterFolders' : 'chunkFolders'
+  const key = materialFolderKeys[kind]
   return {
     ...library,
     [key]: (library[key] ?? []).filter((folder) => folder.id !== id),
-    [kind]: library[kind].map((item) => {
+    [kind]: (library[kind] ?? []).map((item) => {
       if (item.folderId !== id) return item
       const next = { ...item }
       delete next.folderId
@@ -57,15 +59,19 @@ export function deleteMaterialFolder(
 }
 export function bulkMaterials(
   library: Library,
-  kind: Kind,
+  kind: MaterialKind,
   ids: string[],
   action: 'move' | 'duplicate' | 'delete',
   folderId = '',
   name = ''
 ): Library {
   const selected = new Set(ids)
-  const current = library[kind]
+  const current = library[kind] ?? []
   if (!current.some((item) => selected.has(item.id))) return library
+  if (action === 'delete' && kind === 'commonPresets')
+    return current
+      .filter((item) => selected.has(item.id))
+      .reduce((result, item) => deleteCommonPreset(result, item.id), library)
   if (action === 'delete')
     return { ...library, [kind]: current.filter((item) => !selected.has(item.id)) }
   if (action === 'duplicate')
@@ -82,8 +88,7 @@ export function bulkMaterials(
           }))
       ]
     }
-  if (kind === 'presets') return library
-  const key = kind === 'characters' ? 'characterFolders' : 'chunkFolders'
+  const key = materialFolderKeys[kind]
   let folders = library[key] ?? []
   if (folderId === 'new') {
     if (!name.trim()) throw new Error('새 폴더 이름을 입력해 주세요.')
@@ -97,7 +102,7 @@ export function bulkMaterials(
     [key]: folders,
     [kind]: current.map((item) => {
       if (!selected.has(item.id)) return item
-      const next = { ...item } as Character | Chunk
+      const next = { ...item }
       if (folderId) next.folderId = folderId
       else delete next.folderId
       return next

@@ -14,6 +14,76 @@ import {
 const sample = (): SyncLibrary => projectSyncLibrary(pixaiLibrary())
 const clone = <T>(value: T): T => structuredClone(value)
 
+describe('preset and common folder synchronization', () => {
+  it('keeps legacy wire bytes and hashes when optional folders are absent or empty', () => {
+    const legacy = sample()
+    const withEmpty = parseSyncLibrary({ ...legacy, presetFolders: [], commonPresetFolders: [] })
+    expect(canonicalSync(withEmpty)).toBe(canonicalSync(legacy))
+    expect(withEmpty).not.toHaveProperty('presetFolders')
+    expect(withEmpty).not.toHaveProperty('commonPresetFolders')
+  })
+  it('merges folder order and item moves, preserving reservation text and local data', () => {
+    const current = pixaiLibrary()
+    current.presetFolders = [
+      { id: 'pf-a', name: 'A' },
+      { id: 'pf-b', name: 'B' }
+    ]
+    current.commonPresetFolders = [{ id: 'cf-a', name: 'Common' }]
+    current.commonPresets = [
+      { id: 'cp', name: 'Style', prompt: 'old-style', negativePrompt: '', folderId: 'cf-a' }
+    ]
+    current.presets[0] = { ...current.presets[0], folderId: 'pf-a', commonPresetId: 'cp' }
+    current.reservations = [
+      { id: 'saved', presetId: 'p1', characterId: 'c1', sceneIds: ['s1'], count: 1 }
+    ]
+    const base = projectSyncLibrary(current)
+    const app = clone(base),
+      script = clone(base)
+    app.presetFolders!.reverse()
+    app.presets[0].folderId = 'pf-b'
+    script.commonPresets[0].prompt = 'new-style'
+    const merged = mergeSyncLibraries(base, app, script)
+    expect(merged.conflicts).toEqual([])
+    expect(merged.library.presetFolders?.map((x) => x.id)).toEqual(['pf-b', 'pf-a'])
+    const result = applySyncLibrary(current, merged.library)
+    expect(result.presets[0].folderId).toBe('pf-b')
+    expect(result.commonPresets![0].prompt).toBe('new-style')
+    expect(result.reservations[0].snapshot?.common.prompt).toBe('old-style')
+    expect(result.reservations[0].snapshot?.preset).not.toHaveProperty('folderId')
+  })
+  it('does not resurrect the final deleted folders when the incoming projection omits them', () => {
+    const current = pixaiLibrary()
+    current.presetFolders = [{ id: 'pf', name: 'Preset' }]
+    current.commonPresetFolders = [{ id: 'cf', name: 'Common' }]
+    current.presets[0].folderId = 'pf'
+    current.commonPresets = [
+      { id: 'cp', name: 'Common', prompt: '', negativePrompt: '', folderId: 'cf' }
+    ]
+    const after = clone(current)
+    after.presetFolders = []
+    after.commonPresetFolders = []
+    delete after.presets[0].folderId
+    delete after.commonPresets![0].folderId
+    const projected = projectSyncLibrary(after)
+    expect(projected).not.toHaveProperty('presetFolders')
+    const restored = applySyncLibrary(current, projected)
+    expect(restored.presetFolders).toEqual([])
+    expect(restored.commonPresetFolders).toEqual([])
+    expect(restored.presets[0]).not.toHaveProperty('folderId')
+    expect(projectSyncLibrary(restored)).toEqual(projected)
+  })
+  it('rejects a merge that would attach a material to a concurrently deleted folder', () => {
+    const base = sample()
+    base.presetFolders = [{ id: 'pf', name: 'Preset' }]
+    const app = clone(base),
+      script = clone(base)
+    delete app.presetFolders
+    script.presets[0].folderId = 'pf'
+    expect(() => mergeSyncLibraries(base, app, script)).toThrow(/폴더/)
+    expect(app.presets[0]).not.toHaveProperty('folderId')
+  })
+})
+
 describe('library-only sync boundary', () => {
   it('projects only materials, links, folders and order, not local work/history/settings', () => {
     const source = pixaiLibrary()

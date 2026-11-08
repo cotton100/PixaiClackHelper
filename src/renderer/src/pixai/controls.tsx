@@ -170,6 +170,39 @@ export function SplitPanes({
   )
 }
 
+// A short native drag can deliver down/move/up before React's next render.
+// Let the pending active-item/position render finish before resolving the drop,
+// otherwise the drop handler sees the previous (or absent) target.
+class ImmediatePointerSensor extends PointerSensor {
+  constructor(props: ConstructorParameters<typeof PointerSensor>[0]) {
+    let frame: number | undefined
+    let settled = false
+    super({
+      ...props,
+      onEnd: () => {
+        if (settled || frame !== undefined) return
+        frame = requestAnimationFrame(() => {
+          if (settled) return
+          // Droppable measurement itself can be scheduled for the first frame.
+          frame = requestAnimationFrame(() => {
+            frame = undefined
+            if (settled) return
+            settled = true
+            if (!props.activeNode.node.current?.isConnected) props.onCancel()
+            else props.onEnd()
+          })
+        })
+      },
+      onCancel: () => {
+        if (settled) return
+        settled = true
+        if (frame !== undefined) cancelAnimationFrame(frame)
+        props.onCancel()
+      }
+    })
+  }
+}
+
 export function SortableItems({
   ids,
   onReorder,
@@ -193,7 +226,7 @@ export function SortableItems({
 }): React.JSX.Element {
   const [dragging, setDragging] = useState<string | null>(null)
   const sensors = useSensors(
-    useSensor(PointerSensor, {
+    useSensor(immediateDrag ? ImmediatePointerSensor : PointerSensor, {
       activationConstraint: immediateDrag ? undefined : { distance: 5 }
     }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })

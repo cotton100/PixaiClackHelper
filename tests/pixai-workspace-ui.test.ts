@@ -455,7 +455,7 @@ describe('Composition, grouped reservations and backup controls', () => {
       expect(container.querySelector('#library-folder-tools')).toBeNull()
       expect(
         [...container.querySelectorAll('button')].some((b) => b.textContent === '폴더 추가')
-      ).toBe(false)
+      ).toBe(true)
     }
   )
 
@@ -544,12 +544,16 @@ describe('Composition, grouped reservations and backup controls', () => {
     await click('청크')
     const expression = container.querySelector('[aria-label="청크 폴더 표정"]')!
     expect(expression.textContent).not.toContain('웃음')
-    expect(expression.querySelector('button')?.getAttribute('aria-expanded')).toBe('false')
+    expect(expression.querySelector('button[aria-expanded]')?.getAttribute('aria-expanded')).toBe(
+      'false'
+    )
     await click('청크 폴더 표정')
     expect(expression.textContent).toContain('웃음')
     expect(expression.textContent).toContain('분노')
     expect(expression.textContent).not.toContain('손 흔듦')
-    await act(async () => expression.querySelector('button')!.click())
+    await act(async () =>
+      expression.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click()
+    )
     expect(expression.textContent).not.toContain('웃음')
     await input('라이브러리 검색', '웃음')
     expect(expression.textContent).toContain('웃음')

@@ -84,6 +84,7 @@ function PixaiWorkspace({ store }: { store: PixaiStore }): React.JSX.Element {
     setDraft({
       ...draft,
       sceneIds: [...card.sceneIds],
+      materialOrder: undefined,
       card,
       imageOptions: card.imageOptions,
       triggerPosition: card.triggerPosition ?? 1

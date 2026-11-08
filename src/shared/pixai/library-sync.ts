@@ -2,7 +2,7 @@ import { strictLibrary, type Library } from './library'
 import { freezeReservation } from './backup-transfer'
 import { jsonBytes, MAX_WORKSPACE_BYTES } from './expansion-budget'
 
-export const SYNC_COLLECTIONS = [
+const LEGACY_SYNC_COLLECTIONS = [
   'commonPresets',
   'presets',
   'characters',
@@ -14,10 +14,12 @@ export const SYNC_COLLECTIONS = [
   'casts',
   'batchPlans'
 ] as const
+export const SYNC_FOLDER_COLLECTIONS = ['presetFolders', 'commonPresetFolders'] as const
+export const SYNC_COLLECTIONS = [...LEGACY_SYNC_COLLECTIONS, ...SYNC_FOLDER_COLLECTIONS] as const
 export type SyncCollection = (typeof SYNC_COLLECTIONS)[number]
 export type SyncLibrary = { version: 1; common: Library['common'] } & {
-  [K in SyncCollection]: NonNullable<Library[K]>
-}
+  [K in (typeof LEGACY_SYNC_COLLECTIONS)[number]]: NonNullable<Library[K]>
+} & Pick<Library, (typeof SYNC_FOLDER_COLLECTIONS)[number]>
 export interface SyncConflict {
   key: string
   label: string
@@ -37,7 +39,9 @@ const LABELS: Record<SyncCollection, string> = {
   sceneFolders: '씬 폴더',
   sceneCards: '씬',
   casts: '출연',
-  batchPlans: '저장 구성'
+  batchPlans: '저장 구성',
+  presetFolders: '프리셋 폴더',
+  commonPresetFolders: '공통문 폴더'
 }
 
 /** Stable property order, preserving the meaningful order of arrays. */
@@ -79,16 +83,23 @@ export function parseSyncLibrary(value: unknown): SyncLibrary {
     throw new Error('동기화 라이브러리 형식을 확인해 주세요.')
   const source = value as Record<string, unknown>
   const keys: readonly string[] = ['version', 'common', ...SYNC_COLLECTIONS]
+  const required: readonly string[] = ['version', 'common', ...LEGACY_SYNC_COLLECTIONS]
   if (
     Object.keys(source).some((key) => !keys.includes(key)) ||
-    keys.some((key) => !Object.hasOwn(source, key)) ||
-    SYNC_COLLECTIONS.some((key) => !Array.isArray(source[key]))
+    required.some((key) => !Object.hasOwn(source, key)) ||
+    SYNC_COLLECTIONS.some((key) => Object.hasOwn(source, key) && !Array.isArray(source[key]))
   )
     throw new Error('동기화에는 라이브러리 재료만 포함할 수 있습니다.')
   const library = strictLibrary({ ...source, reservations: [] })
   const projected = { version: 1, common: library.common } as SyncLibrary
-  for (const key of SYNC_COLLECTIONS)
-    (projected as unknown as Record<string, unknown>)[key] = library[key] ?? []
+  for (const key of SYNC_COLLECTIONS) {
+    if (
+      SYNC_FOLDER_COLLECTIONS.includes(key as (typeof SYNC_FOLDER_COLLECTIONS)[number]) &&
+      !library[key]?.length
+    )
+      continue
+    ;(projected as unknown as Record<string, unknown>)[key] = library[key] ?? []
+  }
   return structuredClone(projected)
 }
 
@@ -106,7 +117,7 @@ const equal = (a: unknown, b: unknown): boolean =>
 function danglingReferences(library: SyncLibrary): Set<string> {
   const missing = new Set<string>()
   const has = (key: SyncCollection, id: string): boolean =>
-    library[key].some((item) => item.id === id)
+    (library[key] ?? []).some((item) => item.id === id)
   const check = (owner: string, key: SyncCollection, id: string | undefined): void => {
     if (id && !has(key, id)) missing.add(`${owner}->${key}:${id}`)
   }
@@ -167,8 +178,8 @@ export function mergeSyncLibraries(
     common: pick('common', '기본 공통문', base?.common, app.common, script.common)
   }
   for (const key of SYNC_COLLECTIONS) {
-    const a = new Map<string, Item>(app[key].map((item) => [item.id, item] as const))
-    const b = new Map<string, Item>(script[key].map((item) => [item.id, item] as const))
+    const a = new Map<string, Item>((app[key] ?? []).map((item) => [item.id, item] as const))
+    const b = new Map<string, Item>((script[key] ?? []).map((item) => [item.id, item] as const))
     const old = new Map<string, Item>((base?.[key] ?? []).map((item) => [item.id, item] as const))
     const items = new Map<string, Item>()
     for (const id of new Set([...a.keys(), ...b.keys(), ...old.keys()])) {
@@ -243,6 +254,11 @@ export function applySyncLibrary(current: Library, incoming: SyncLibrary): Libra
   return strictLibrary({
     ...original,
     ...validated,
+    ...Object.fromEntries(
+      SYNC_FOLDER_COLLECTIONS.filter(
+        (key) => Object.hasOwn(original, key) || Object.hasOwn(validated, key)
+      ).map((key) => [key, validated[key] ?? []])
+    ),
     reservations: original.reservations.map((item) => freezeReservation(original, item))
   })
 }

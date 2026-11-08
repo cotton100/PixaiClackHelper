@@ -5,6 +5,7 @@ import {
   mergeSyncLibraries,
   parseSyncLibrary,
   SYNC_COLLECTIONS,
+  SYNC_FOLDER_COLLECTIONS,
   type SyncLibrary
 } from '../../shared/pixai/library-sync'
 import { MAX_WORKSPACE_BYTES } from '../../shared/pixai/expansion-budget'
@@ -53,7 +54,7 @@ export function syncHash(value: SyncLibrary): string {
 const same = (a: SyncLibrary, b: SyncLibrary): boolean => canonicalSync(a) === canonicalSync(b)
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T
 const count = (value: SyncLibrary): number =>
-  SYNC_COLLECTIONS.reduce((total, key) => total + value[key].length, 0)
+  SYNC_COLLECTIONS.reduce((total, key) => total + (value[key]?.length ?? 0), 0)
 function record(value: unknown, keys: string[]): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value))
     throw new SyncError('요청 형식을 확인해 주세요.', 400)
@@ -88,6 +89,7 @@ export class LibrarySyncServer {
   private lastSeen?: number
   private message?: string
   private corrupt = false
+  private materialFolderSupport = false
   constructor(private readonly deps: LibrarySyncDependencies) {
     this.stored = { version: 1, enabled: false }
     try {
@@ -313,6 +315,23 @@ export class LibrarySyncServer {
     this.exchangeState = { state: 'blocked', message }
     return this.exchangeState
   }
+  private requiresMaterialFolderSupport(): boolean {
+    return [
+      this.deps.read(),
+      this.stored.baseline,
+      this.stored.pending?.library,
+      this.stored.pending?.app,
+      this.stored.pending?.script,
+      this.preview?.proposal.library
+    ].some((library) => library && SYNC_FOLDER_COLLECTIONS.some((key) => library[key]?.length))
+  }
+  private folderSupportBlock(): SyncExchange | undefined {
+    if (!this.materialFolderSupport && this.requiresMaterialFolderSupport())
+      return this.blocked(
+        '프리셋·공통문 폴더를 보존하려면 스크립트를 0.10.22 이상으로 업데이트한 뒤 다시 동기화해 주세요. 기존 자료는 변경하지 않았습니다.'
+      )
+    return undefined
+  }
   private outgoing(pending: Pending): SyncExchange {
     this.exchangeState = {
       state: 'apply',
@@ -323,6 +342,8 @@ export class LibrarySyncServer {
     return this.exchangeState
   }
   private async approveInner(id: string, choices: Choices): Promise<SyncExchange> {
+    const unsupported = this.folderSupportBlock()
+    if (unsupported) return unsupported
     const selected = record(choices, Object.keys(choices ?? {})) as Choices
     if (Object.values(selected).some((value) => !['app', 'script'].includes(value)))
       throw new SyncError('충돌 선택을 확인해 주세요.', 400)
@@ -580,6 +601,12 @@ export class LibrarySyncServer {
                   : ['id']
         )
         if (action === 'pair') return this.pair(raw.code)
+        if (['exchange', 'approve', 'ack'].includes(action)) {
+          this.materialFolderSupport =
+            req.headers['x-pixai-library-features'] === 'material-folders-v1'
+          const unsupported = this.folderSupportBlock()
+          if (unsupported) return unsupported
+        }
         if (action === 'exchange') return this.exchange(raw.library, raw.automatic, raw.requestSync)
         if (action === 'approve')
           return this.approveInner(identifier(raw.id), raw.choices as Choices)
