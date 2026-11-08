@@ -18,6 +18,10 @@ import { makeUpdateEngine } from './update-engine'
 import { appIdentity, channelForVersion } from '../../shared/pixai/channels'
 import { backupBeforeUpdate, preserveSettingsOnVersionChange } from './settings-backup'
 import { assertWorkspaceRevision, readWorkspace, writeWorkspace } from './workspace-storage'
+import { LibrarySyncServer } from './library-sync'
+import { LibrarySyncApplyBridge } from './library-sync-apply-bridge'
+import { makeLibrary, strictLibrary } from '../../shared/pixai/library'
+import { projectSyncLibrary } from '../../shared/pixai/library-sync'
 import type { PixaiInvokeMap, ConnectionStatus, ExecutionJob } from '../../shared/pixai/execution'
 
 const smoke = process.argv.includes('--pixais-smoke-test')
@@ -33,6 +37,7 @@ if (!ownsInstance) app.quit()
 let win: BrowserWindow | null = null
 let runner: PixaiRunner
 let quitting = false
+let librarySync: LibrarySyncServer | undefined
 app.on('second-instance', () => {
   if (win?.isMinimized()) win.restore()
   win?.show()
@@ -93,6 +98,14 @@ if (ownsInstance)
       let outputDir = getSetting('pixais.outputDir') ?? ''
       let embedMetadata = getSetting('pixais.embedMetadata.v1') === 'true'
       let readingImage = false
+      let syncRendererGone = false
+      const syncApplyBridge = new LibrarySyncApplyBridge({
+        send: (request) => {
+          if (syncRendererGone || !win || win.isDestroyed() || win.webContents.isDestroyed())
+            throw new Error('앱 화면을 연 뒤 다시 동기화해 주세요.')
+          win.webContents.send('pixai:library-sync-apply', request)
+        }
+      })
       const updates = new PixaisUpdates({
         version: app.getVersion(),
         channel:
@@ -107,7 +120,7 @@ if (ownsInstance)
         engine: makeUpdateEngine,
         databaseVersion: () => getDb().pragma('user_version', { simple: true }) as number,
         backup: backupBeforeUpdate,
-        canInstall: () => canInstallUpdate(runner.status())
+        canInstall: () => syncApplyBridge.pendingCount === 0 && canInstallUpdate(runner.status())
       })
       const updateIdle = (): void => {
         if (updates.status().phase === 'installing')
@@ -127,6 +140,21 @@ if (ownsInstance)
         updateIdle()
         if (runner.status().running) throw new Error('실행을 멈춘 뒤 변경해 주세요.')
       }
+      librarySync = new LibrarySyncServer({
+        read: () => {
+          const text = readWorkspace(getDb()).value
+          if (text === null) return projectSyncLibrary(makeLibrary())
+          const workspace = JSON.parse(text)
+          if (workspace?.version !== 1) throw new Error('저장된 작업 공간을 확인해 주세요.')
+          return projectSyncLibrary(strictLibrary(workspace.library))
+        },
+        apply: (expected, next) => {
+          idle()
+          return syncApplyBridge.apply(expected, next)
+        },
+        readState: () => getSetting('pixais.librarySync.v1'),
+        writeState: (text) => setSetting('pixais.librarySync.v1', text)
+      })
       function handle<C extends keyof PixaiInvokeMap>(
         channel: C,
         callback: (
@@ -134,14 +162,34 @@ if (ownsInstance)
         ) => PixaiInvokeMap[C]['res'] | Promise<PixaiInvokeMap[C]['res']>
       ): void {
         ipcMain.handle(channel, (event, req) => {
-          if (event.sender !== win?.webContents || event.senderFrame !== win.webContents.mainFrame)
+          if (
+            syncRendererGone ||
+            event.sender !== win?.webContents ||
+            event.senderFrame !== win.webContents.mainFrame
+          )
             throw new Error('허용되지 않은 호출입니다.')
-          if (!['pixai:update-status', 'pixai:status', 'pixai:connection'].includes(channel))
+          if (
+            ![
+              'pixai:update-status',
+              'pixai:status',
+              'pixai:connection',
+              'pixai:library-sync-status',
+              'pixai:library-sync-applied'
+            ].includes(channel)
+          )
             updateIdle()
           return callback(req)
         })
       }
       handle('pixai:status', () => runner.status())
+      handle('pixai:library-sync-status', () => librarySync!.status())
+      handle('pixai:library-sync-enable', (req) => librarySync!.enable(req?.enabled))
+      handle('pixai:library-sync-pair', () => librarySync!.newPair())
+      handle('pixai:library-sync-request', () => librarySync!.request())
+      handle('pixai:library-sync-approve', (req) => librarySync!.approve(req?.id, req?.choices))
+      handle('pixai:library-sync-cancel', (req) => librarySync!.cancel(req?.id))
+      handle('pixai:library-sync-disconnect', () => librarySync!.disconnect())
+      handle('pixai:library-sync-applied', (req) => syncApplyBridge.reply(req))
       handle('tags:search', (req) => ({ items: searchTags(req?.query, req?.limit) }))
       handle('pixai:workspace-read', () => readWorkspace(getDb()))
       handle('pixai:workspace-write', (req) => writeWorkspace(getDb(), req))
@@ -210,10 +258,14 @@ if (ownsInstance)
         return connection()
       })
       handle('pixai:start', async (req) => {
+        if (syncApplyBridge.pendingCount)
+          throw new Error('자료 동기화가 끝난 뒤 생성을 시작해 주세요.')
         if (!vault.get()) throw new Error('설정에서 API 키를 연결해 주세요.')
         if (req.costsAccepted !== true) throw new Error('생성 비용 안내를 확인해 주세요.')
         await checkFolder(outputDir)
         updateIdle()
+        if (syncApplyBridge.pendingCount)
+          throw new Error('자료 동기화가 끝난 뒤 생성을 시작해 주세요.')
         assertWorkspaceRevision(getDb(), req.expectedWorkspaceRevision)
         runner.start(req.jobs, outputDir, maxInFlight, req.relocatePending === true, embedMetadata)
         return runner.status()
@@ -271,6 +323,15 @@ if (ownsInstance)
         }
       })
       win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+      const syncRendererEnded = (): void => {
+        syncRendererGone = true
+        syncApplyBridge.rendererGone()
+      }
+      win.webContents.on('render-process-gone', syncRendererEnded)
+      win.webContents.on('destroyed', syncRendererEnded)
+      win.webContents.on('did-finish-load', () => {
+        syncRendererGone = false
+      })
       const target =
         !app.isPackaged && process.env.ELECTRON_RENDERER_URL
           ? process.env.ELECTRON_RENDERER_URL
@@ -303,6 +364,7 @@ if (ownsInstance)
         }
       })
       await win.loadURL(target)
+      await librarySync.start()
       if (smoke) {
         const ok = await win.webContents.executeJavaScript(
           `(async () => {
@@ -425,4 +487,7 @@ if (ownsInstance)
       app.quit()
     })
 app.on('window-all-closed', () => app.quit())
+app.on('before-quit', () => {
+  void librarySync?.close()
+})
 app.on('quit', closeDb)

@@ -3,7 +3,7 @@ import { SceneExtraChunkPicker, ScenePromptOptions } from './scene-prompt-option
 import { SceneMaterialSplit } from './scene-material-split'
 import { useUnsavedNavigation } from './unsaved-navigation'
 import { RatioMark } from './ratio-mark'
-import { useEffect, useState } from 'react'
+import { useLayoutEffect, useState } from 'react'
 import { useDroppable } from '@dnd-kit/core'
 import { SceneThumbnailView } from './scene-thumbnails'
 import { useSceneThumbnails } from './use-scene-thumbnails'
@@ -1213,22 +1213,26 @@ function SceneEditor({
 }): React.JSX.Element {
   const { workspace, busy } = store()
   const [draft, setDraft] = useState(card)
+  const [baseline, setBaseline] = useState(card)
   const [newFolder, setNewFolder] = useState('')
   const [chunkSearch, setChunkSearch] = useState('')
   const [error, setError] = useState('')
-  const dirty = JSON.stringify(draft) !== JSON.stringify(card) || !!newFolder
-  useEffect(
-    () =>
-      guard.register(
-        dirty,
-        () => save(),
-        () => {
-          setDraft(card)
-          setNewFolder('')
-          setError('')
-        }
-      ),
-    [dirty, draft, newFolder, card]
+  const dirty = JSON.stringify(draft) !== JSON.stringify(baseline) || !!newFolder
+  if (!dirty && JSON.stringify(card) !== JSON.stringify(baseline)) {
+    setDraft(card)
+    setBaseline(card)
+  }
+  useLayoutEffect(() =>
+    guard.register(
+      dirty,
+      () => save(),
+      () => {
+        setDraft(card)
+        setBaseline(card)
+        setNewFolder('')
+        setError('')
+      }
+    )
   )
   async function save(copy = false): Promise<boolean> {
     try {
@@ -1243,6 +1247,7 @@ function SceneEditor({
       } else await onSave(value)
       setNewFolder('')
       setDraft(value)
+      setBaseline(value)
       setError('')
       onNotice('씬을 저장했습니다.')
       return true

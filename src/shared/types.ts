@@ -698,6 +698,7 @@ export interface IpcInvokeMap extends PixaiInvokeMap {
 
 /** 메인 → 렌더러 이벤트 채널 */
 export interface IpcEventMap {
+  'pixai:library-sync-apply': import('./pixai/execution').LibrarySyncApplyRequest
   'queue:changed': QueueStatus
   /** 생성 완료 등으로 잔액이 갱신될 때 */
   'anlas:balance': {

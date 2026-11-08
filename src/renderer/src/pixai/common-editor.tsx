@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useLayoutEffect, useState } from 'react'
 import type { CommonPreset } from '@shared/pixai/library'
 import { PromptFields } from './controls'
 import type { PixaiStore } from './store'
@@ -53,13 +53,11 @@ export function CommonEditor({
       return false
     }
   }
-  useEffect(
-    () =>
-      guard.register(dirty, save, () => {
-        setDraft(baseline)
-        setError('')
-      }),
-    [draft, dirty, baseline]
+  useLayoutEffect(() =>
+    guard.register(dirty, save, () => {
+      setDraft(baseline)
+      setError('')
+    })
   )
   return (
     <form

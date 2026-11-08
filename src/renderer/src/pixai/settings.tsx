@@ -19,6 +19,7 @@ import type { PixaiStore } from './store'
 import { ApiConnection } from './execution'
 import { AppUpdates } from './updates'
 import { BackupPicker } from './backup-picker'
+import { LibrarySyncSettings } from './library-sync'
 
 export function BackupSettings({
   store,
@@ -167,6 +168,7 @@ export function BackupSettings({
   }
   return (
     <div className="px-settings">
+      <LibrarySyncSettings store={store} />
       <fieldset className="px-settings-mutations" disabled={conflict}>
         <ApiConnection />
         <AppUpdates />

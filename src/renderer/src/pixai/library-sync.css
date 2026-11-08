@@ -1,0 +1,80 @@
+.px-library-sync {
+  min-width: 0;
+}
+.px-sync-status {
+  display: grid;
+  gap: 4px;
+  color: var(--px-accent);
+}
+.px-sync-status small,
+.px-library-sync > small {
+  color: var(--px-muted);
+}
+.px-sync-code {
+  padding: 12px;
+  margin-top: 12px;
+  border: 1px solid var(--px-line);
+  border-radius: 8px;
+}
+.px-sync-code input {
+  font-family: monospace;
+  width: 100%;
+}
+.px-sync-preview {
+  margin-top: 16px;
+  padding: 12px;
+  background: var(--px-bg);
+  border: 1px solid var(--px-line);
+  border-radius: 8px;
+}
+.px-sync-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 28px;
+}
+.px-sync-counts div {
+  display: grid;
+  gap: 2px;
+}
+.px-sync-counts dt {
+  color: var(--px-muted);
+}
+.px-sync-counts dd {
+  margin: 0;
+  font-weight: 700;
+  font-size: 20px;
+}
+.px-sync-conflict {
+  min-width: 0;
+  margin: 12px 0;
+  padding: 10px;
+  border: 1px solid var(--px-line);
+  border-radius: 6px;
+}
+.px-sync-conflict legend {
+  overflow-wrap: anywhere;
+}
+.px-sync-values {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.px-sync-values > label {
+  display: block;
+  min-width: 0;
+}
+.px-sync-values pre {
+  padding: 8px;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  background: var(--px-surface);
+  border-radius: 4px;
+}
+@media (max-width: 760px) {
+  .px-sync-values {
+    grid-template-columns: 1fr;
+  }
+}

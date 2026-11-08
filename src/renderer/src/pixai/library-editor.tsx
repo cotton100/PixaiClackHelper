@@ -3,7 +3,7 @@ import { CommonEditor } from './common-editor'
 import { MaterialPreview } from './material-preview'
 import { bulkMaterials, deleteMaterialFolder, renameMaterialFolder } from './library-actions'
 import { useUnsavedNavigation } from './unsaved-navigation'
-import { useEffect, useState } from 'react'
+import { useLayoutEffect, useState } from 'react'
 import { Copy, FolderPlus, ListChecks, Plus, Trash2 } from 'lucide-react'
 import type { Cast, Character, Chunk, Folder, Library, Preset } from '@shared/pixai/library'
 import { PromptFields, SortableItem, SortableItems, SplitPanes } from './controls'
@@ -588,13 +588,11 @@ function MaterialEditor({
         JSON.stringify(draft[key as keyof Material]) !==
         JSON.stringify(baseline[key as keyof Material])
     ).length + (newFolder ? 1 : 0)
-  useEffect(
-    () =>
-      guard.register(dirtyCount > 0, save, () => {
-        setDraft(baseline)
-        setNewFolder('')
-      }),
-    [draft, newFolder, dirtyCount]
+  useLayoutEffect(() =>
+    guard.register(dirtyCount > 0, save, () => {
+      setDraft(baseline)
+      setNewFolder('')
+    })
   )
   // Reconcile external folder moves only while this editor has no pending edits.
   if (!dirtyCount && JSON.stringify(item) !== JSON.stringify(baseline)) {
@@ -906,7 +904,14 @@ function CastEditor({
       return false
     }
   }
-  useEffect(() => guard.register(castDirty, saveCast, () => setDraft(null)), [draft, castDirty])
+  useLayoutEffect(() => guard.register(castDirty, saveCast, () => setDraft(null)))
+  if (draft && !castDirty) {
+    const saved = workspace.library.casts?.find((cast) => cast.id === draft.id) ?? null
+    if (JSON.stringify(saved) !== JSON.stringify(castBaseline)) {
+      setDraft(saved)
+      setCastBaseline(saved)
+    }
+  }
   return (
     <div className="px-casts">
       <p>출연은 이 캐릭터에 프리셋·복장 등 추가 문구를 연결한 구성입니다.</p>
