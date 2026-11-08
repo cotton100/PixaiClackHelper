@@ -33,10 +33,12 @@ export interface ModelRef {
 export interface CommonPreset extends ExtraText {
   id: string
   name: string
+  folderId?: string
 }
 
 export interface Preset {
   commonPresetId?: string
+  folderId?: string
   id: string
   name: string
   model: ModelRef
@@ -77,6 +79,7 @@ export interface Folder {
 }
 
 export type TriggerPosition = number | 'end'
+export type MaterialOrderItem = 'common' | 'character' | `chunk:${string}`
 
 export type BatchPromptBlock = 'character' | 'scene' | 'extraChunks'
 export const DEFAULT_BATCH_PROMPT_ORDER: readonly BatchPromptBlock[] = [
@@ -114,6 +117,7 @@ export interface Reservation {
   presetId: string
   characterId: string
   sceneIds: string[]
+  materialOrder?: MaterialOrderItem[]
   count: number
   triggerPosition?: TriggerPosition
   imageOptions?: ImageOptions
@@ -127,6 +131,7 @@ export interface Combination {
   presetId: string
   characterId: string
   sceneIds: string[]
+  materialOrder?: MaterialOrderItem[]
   count: number
   triggerPosition?: TriggerPosition
   imageOptions?: ImageOptions
@@ -178,9 +183,11 @@ export interface BatchPlan {
 
 export interface Library {
   commonPresets?: CommonPreset[]
+  commonPresetFolders?: Folder[]
   version: 1
   common: ExtraText
   presets: Preset[]
+  presetFolders?: Folder[]
   characters: Character[]
   characterFolders?: Folder[]
   chunkFolders: Folder[]
@@ -289,6 +296,40 @@ export function normalizeTriggerPosition(value: unknown, chunkCount: number): Tr
   if (!Number.isInteger(value) || (value as number) < 0 || (value as number) > chunkCount + 2)
     throw new Error('LoRA 트리거 위치를 확인해 주세요.')
   return value as number
+}
+
+/** Exact material permutation; chunk IDs keep the same relative order as sceneIds. */
+export function normalizeMaterialOrder(value: unknown, sceneIds: string[]): MaterialOrderItem[] {
+  const expected: MaterialOrderItem[] = [
+    'common',
+    'character',
+    ...sceneIds.map((id) => `chunk:${id}` as const)
+  ]
+  if (value === undefined) return expected
+  if (
+    !Array.isArray(value) ||
+    value.length !== expected.length ||
+    new Set(value).size !== expected.length ||
+    !expected.every((item) => value.includes(item)) ||
+    JSON.stringify(
+      value.filter((item) => typeof item === 'string' && item.startsWith('chunk:'))
+    ) !== JSON.stringify(expected.slice(2))
+  )
+    throw new Error(
+      '재료 순서는 공통문·캐릭터·선택한 청크를 한 번씩 포함하고 청크 순서가 일치해야 합니다.'
+    )
+  return [...value] as MaterialOrderItem[]
+}
+
+function hasCustomMaterialOrder(item: {
+  sceneIds: string[]
+  materialOrder?: MaterialOrderItem[]
+}): boolean {
+  return (
+    item.materialOrder !== undefined &&
+    JSON.stringify(item.materialOrder) !==
+      JSON.stringify(normalizeMaterialOrder(undefined, item.sceneIds))
+  )
 }
 
 export function normalizeBatchPromptOrder(value: unknown): BatchPromptBlock[] {
@@ -647,7 +688,7 @@ export function normalizeSnapshot(value: unknown): Snapshot {
   const frozen = normalizeLibrary({
     version: 1,
     common: source.common,
-    presets: [source.preset],
+    presets: [omitKey(presetObject(source.preset, '프리셋 사본'), 'folderId')],
     // Folders organize the live library; frozen prompts must survive folder deletion.
     characters: [omitKey(presetObject(source.character, '캐릭터 사본'), 'folderId')],
     scenes: source.chunks,
@@ -709,6 +750,10 @@ export function normalizeLibrary(value: unknown): Library {
       true
     )
   const chunkFolders = folders('chunkFolders', '청크 폴더')
+  const presetFolders = folders('presetFolders', '프리셋 폴더')
+  const presetFolderIds = new Set(presetFolders.map((item) => item.id))
+  const commonPresetFolders = folders('commonPresetFolders', '공통문 폴더')
+  const commonPresetFolderIds = new Set(commonPresetFolders.map((item) => item.id))
   const characterFolders = folders('characterFolders', '캐릭터 폴더')
   const characterFolderIds = new Set(characterFolders.map((item) => item.id))
   const sceneFolders = folders('sceneFolders', '씬 모음')
@@ -730,6 +775,12 @@ export function normalizeLibrary(value: unknown): Library {
         preset.commonPresetId = presetIdentifier(item.commonPresetId, '공통문 세트')
       if (hasOwn(item, 'prompt')) preset.prompt = presetText(item.prompt)
       if (hasOwn(item, 'negativePrompt')) preset.negativePrompt = presetText(item.negativePrompt)
+      if (hasOwn(item, 'folderId')) {
+        const folderId = presetIdentifier(item.folderId, '프리셋 폴더')
+        if (!presetFolderIds.has(folderId))
+          throw new Error(`프리셋 ${id}의 폴더가 없습니다: ${folderId}`)
+        preset.folderId = folderId
+      }
       return preset
     }),
     characters: entries('characters', (item, id) => {
@@ -774,6 +825,8 @@ export function normalizeLibrary(value: unknown): Library {
     }
     if (hasOwn(item, 'triggerPosition'))
       reservation.triggerPosition = normalizeTriggerPosition(item.triggerPosition, sceneIds.length)
+    if (hasOwn(item, 'materialOrder'))
+      reservation.materialOrder = normalizeMaterialOrder(item.materialOrder, sceneIds)
     if (hasOwn(item, 'imageOptions'))
       reservation.imageOptions = normalizeImageOptions(item.imageOptions)
     if (hasOwn(item, 'sourceSceneId'))
@@ -782,6 +835,8 @@ export function normalizeLibrary(value: unknown): Library {
     if (hasOwn(item, 'snapshot')) {
       reservation.snapshot = normalizeSnapshot(item.snapshot)
       const frozen = reservation.snapshot
+      if (reservation.materialOrder !== undefined && frozen.promptOrder !== undefined)
+        throw new Error('조합 재료 순서와 씬 일괄 블록 순서는 동시에 적용할 수 없습니다.')
       if (
         frozen.preset.id !== reservation.presetId ||
         frozen.character.id !== reservation.characterId ||
@@ -812,6 +867,8 @@ export function normalizeLibrary(value: unknown): Library {
         entry.triggerPosition = normalizeTriggerPosition(item.triggerPosition, sceneIds.length)
       if (hasOwn(item, 'imageOptions'))
         entry.imageOptions = normalizeImageOptions(item.imageOptions)
+      if (hasOwn(item, 'materialOrder'))
+        entry.materialOrder = normalizeMaterialOrder(item.materialOrder, entry.sceneIds)
       return entry
     })
     if (
@@ -825,13 +882,22 @@ export function normalizeLibrary(value: unknown): Library {
     library.commonPresets = entries('commonPresets', (item, id) => {
       const name = presetText(item.name)
       if (!name) throw new Error('공통문 세트 이름을 입력해 주세요.')
-      return {
+      const preset: CommonPreset = {
         id,
         name,
         prompt: presetText(item.prompt),
         negativePrompt: presetText(item.negativePrompt)
       }
+      if (hasOwn(item, 'folderId')) {
+        const folderId = presetIdentifier(item.folderId, '공통문 폴더')
+        if (!commonPresetFolderIds.has(folderId))
+          throw new Error(`공통문 ${id}의 폴더가 없습니다: ${folderId}`)
+        preset.folderId = folderId
+      }
+      return preset
     })
+  if (hasOwn(source, 'presetFolders')) library.presetFolders = presetFolders
+  if (hasOwn(source, 'commonPresetFolders')) library.commonPresetFolders = commonPresetFolders
   if (hasOwn(source, 'characterFolders')) library.characterFolders = characterFolders
   if (hasOwn(source, 'sceneFolders')) library.sceneFolders = sceneFolders
   const sceneFolderIds = new Set(sceneFolders.map((item) => item.id))
@@ -858,6 +924,7 @@ export function strictLibrary(value: unknown): Library {
       'version',
       'common',
       'presets',
+      'presetFolders',
       'characters',
       'characterFolders',
       'chunkFolders',
@@ -868,7 +935,8 @@ export function strictLibrary(value: unknown): Library {
       'sceneCards',
       'casts',
       'batchPlans',
-      'commonPresets'
+      'commonPresets',
+      'commonPresetFolders'
     ]
   )
   allowedKeys(source.common, '공통 프롬프트', ['prompt', 'negativePrompt'])
@@ -876,6 +944,8 @@ export function strictLibrary(value: unknown): Library {
   const list = (key: string): unknown[] =>
     Array.isArray(source[key]) ? (source[key] as unknown[]) : []
   for (const folder of [
+    ...list('presetFolders'),
+    ...list('commonPresetFolders'),
     ...list('characterFolders'),
     ...list('chunkFolders'),
     ...list('sceneFolders')
@@ -886,7 +956,7 @@ export function strictLibrary(value: unknown): Library {
       item,
       '설정 프리셋',
       ['id', 'name', 'model', 'loras'],
-      ['id', 'name', 'model', 'loras', 'prompt', 'negativePrompt', 'commonPresetId']
+      ['id', 'name', 'model', 'loras', 'prompt', 'negativePrompt', 'commonPresetId', 'folderId']
     )
     allowedKeys(
       preset.model,
@@ -903,7 +973,12 @@ export function strictLibrary(value: unknown): Library {
       )
   }
   for (const item of list('commonPresets'))
-    allowedKeys(item, '공통문 세트', ['id', 'name', 'prompt', 'negativePrompt'])
+    allowedKeys(
+      item,
+      '공통문 세트',
+      ['id', 'name', 'prompt', 'negativePrompt'],
+      ['id', 'name', 'prompt', 'negativePrompt', 'folderId']
+    )
   for (const preset of library.presets) resolvePresetCommon(library, preset)
   const fields = ['id', 'name', 'prompt', 'negativePrompt']
   for (const item of list('characters'))
@@ -921,6 +996,7 @@ export function strictLibrary(value: unknown): Library {
         'count',
         'sceneId',
         'sceneIds',
+        'materialOrder',
         'snapshot',
         'triggerPosition',
         'imageOptions',
@@ -939,6 +1015,7 @@ export function strictLibrary(value: unknown): Library {
         'presetId',
         'characterId',
         'sceneIds',
+        'materialOrder',
         'count',
         'favorite',
         'name',
@@ -993,12 +1070,17 @@ export interface ScriptExportDropped {
   presetsWithText: string[]
   /** 문구 있는 프리셋을 참조하는 최근 조합·즐겨찾기 수 — 스크립트에서 불러오면 문구가 빠진다 */
   combinationsWithPresetText: number
+  /** 전체 재료 순서를 구형 스크립트가 표현하지 못해 제외한 최근 조합·즐겨찾기 수 */
+  combinationsWithMaterialOrder: number
   keys: string[]
 }
 
 /** 스크립트가 아는 프리셋 모양: 문구 필드를 뺀다. */
 function presetForScript(preset: Preset): Preset {
-  return omitKey(omitKey(omitKey(preset, 'prompt'), 'negativePrompt'), 'commonPresetId')
+  return omitKey(
+    omitKey(omitKey(omitKey(preset, 'prompt'), 'negativePrompt'), 'commonPresetId'),
+    'folderId'
+  )
 }
 
 export function exportForScript(value: unknown): {
@@ -1017,6 +1099,7 @@ export function exportForScript(value: unknown): {
       .filter((preset) => presetHasText(preset) || !!preset.commonPresetId)
       .map((preset) => preset.name || preset.id),
     combinationsWithPresetText: 0,
+    combinationsWithMaterialOrder: 0,
     keys: []
   }
   const textPresetIds = new Set(
@@ -1024,8 +1107,11 @@ export function exportForScript(value: unknown): {
       .filter((preset) => presetHasText(preset) || !!preset.commonPresetId)
       .map((preset) => preset.id)
   )
-  dropped.combinationsWithPresetText = (library.combinations ?? []).filter((item) =>
-    textPresetIds.has(item.presetId)
+  dropped.combinationsWithPresetText = (library.combinations ?? []).filter(
+    (item) => textPresetIds.has(item.presetId) && !hasCustomMaterialOrder(item)
+  ).length
+  dropped.combinationsWithMaterialOrder = (library.combinations ?? []).filter(
+    hasCustomMaterialOrder
   ).length
   const out: Library = {
     version: 1,
@@ -1038,6 +1124,10 @@ export function exportForScript(value: unknown): {
     scenes: library.scenes,
     reservations: library.reservations
       .filter((item) => {
+        if (hasCustomMaterialOrder(item)) {
+          dropped.reservations++
+          return false
+        }
         // Match expandReservations: use today's preset only when no frozen copy exists.
         const preset =
           item.snapshot?.preset ?? library.presets.find((preset) => preset.id === item.presetId)
@@ -1062,7 +1152,7 @@ export function exportForScript(value: unknown): {
         return true
       })
       .map((item) => {
-        const plain = omitKey(omitKey(item, 'batch'), 'sourceSceneId')
+        const plain = omitKey(omitKey(omitKey(item, 'batch'), 'sourceSceneId'), 'materialOrder')
         return plain.snapshot
           ? {
               ...plain,
@@ -1075,11 +1165,26 @@ export function exportForScript(value: unknown): {
       })
   }
   if (library.presets.some(presetHasText)) dropped.keys.push('presets.prompt')
+  if (library.presets.some((item) => item.folderId)) dropped.keys.push('presets.folderId')
   if (library.presets.some((item) => item.commonPresetId))
     dropped.keys.push('presets.commonPresetId')
-  if (library.combinations) out.combinations = library.combinations
+  if (library.combinations)
+    out.combinations = library.combinations
+      .filter((item) => !hasCustomMaterialOrder(item))
+      .map((item) => omitKey(item, 'materialOrder'))
+  if (library.reservations.some(hasCustomMaterialOrder))
+    dropped.keys.push('reservations.materialOrder')
+  if (dropped.combinationsWithMaterialOrder) dropped.keys.push('combinations.materialOrder')
   if (library.characterFolders) out.characterFolders = library.characterFolders
-  for (const key of ['sceneFolders', 'sceneCards', 'casts', 'batchPlans', 'commonPresets'] as const)
+  for (const key of [
+    'sceneFolders',
+    'sceneCards',
+    'casts',
+    'batchPlans',
+    'commonPresets',
+    'presetFolders',
+    'commonPresetFolders'
+  ] as const)
     if (library[key]) dropped.keys.push(key)
   if (library.characters.some((item) => item.defaultPresetId))
     dropped.keys.push('characters.defaultPresetId')
@@ -1234,19 +1339,28 @@ export function parseSettingsBackup(text: string): SettingsBackup {
     'library',
     'options'
   ])
-  if (source.format !== 'pixai-web-queue-settings' || source.version !== 1)
+  if (source.format !== 'pixai-web-queue-settings' || ![1, 2].includes(source.version as number))
     throw new Error('지원하지 않는 설정 백업 형식 또는 버전입니다.')
   if (typeof source.appVersion !== 'string' || !source.appVersion.trim())
     throw new Error('백업의 스크립트 버전을 확인해 주세요.')
   if (typeof source.exportedAt !== 'string' || !Number.isFinite(Date.parse(source.exportedAt)))
     throw new Error('백업의 저장 시각을 확인해 주세요.')
+  // Browser v2 adds its PNG-write preference. The desktop keeps that setting
+  // outside workspace options; importing a library must not enable disclosure.
+  let importedOptions = source.options
+  if (source.version === 2) {
+    const options = presetObject(source.options, '대기열 옵션')
+    if (hasOwn(options, 'embedMetadata') && typeof options.embedMetadata !== 'boolean')
+      throw new Error('PNG 기록 옵션은 체크 상태여야 합니다.')
+    importedOptions = omitKey(options, 'embedMetadata')
+  }
   return {
     format: 'pixai-web-queue-settings',
     version: 1,
     appVersion: source.appVersion.trim(),
     exportedAt: new Date(Date.parse(source.exportedAt)).toISOString(),
     library: strictLibrary(source.library),
-    options: normalizeSettingsOptions(source.options)
+    options: normalizeSettingsOptions(importedOptions)
   }
 }
 
@@ -1291,10 +1405,52 @@ export function composePrompts(
   preset: { loras: LoraRef[]; prompt?: string; negativePrompt?: string },
   triggerPosition: TriggerPosition = 1,
   extras: { cast?: ExtraText; scene?: ExtraText } = {},
-  options: { extraChunks?: ExtraText[]; promptOrder?: BatchPromptBlock[] } = {}
+  options: {
+    extraChunks?: ExtraText[]
+    promptOrder?: BatchPromptBlock[]
+    materialOrder?: MaterialOrderItem[]
+    sceneIds?: string[]
+  } = {}
 ): ExtraText {
   const triggers = preset.loras.map((item) => presetText(item.triggerWords ?? ''))
   const position = normalizeTriggerPosition(triggerPosition, chunks.length)
+  if (options.materialOrder !== undefined) {
+    if (options.promptOrder !== undefined)
+      throw new Error('조합 재료 순서와 씬 일괄 블록 순서는 동시에 적용할 수 없습니다.')
+    const ids = options.sceneIds
+    if (!ids || ids.length !== chunks.length || new Set(ids).size !== ids.length)
+      throw new Error('재료 순서에 사용할 청크 ID를 확인해 주세요.')
+    const materialOrder = normalizeMaterialOrder(options.materialOrder, ids)
+    const promptParts = position === 0 ? [...triggers] : []
+    const negativeParts: string[] = []
+    for (const item of materialOrder) {
+      if (item === 'common') {
+        promptParts.push(joinParts(common.prompt, preset.prompt))
+        negativeParts.push(joinParts(common.negativePrompt, preset.negativePrompt))
+        if (position === 1) promptParts.push(...triggers)
+      } else if (item === 'character') {
+        promptParts.push(joinParts(character.prompt, extras.cast?.prompt))
+        negativeParts.push(joinParts(character.negativePrompt, extras.cast?.negativePrompt))
+        if (position === 2) promptParts.push(...triggers)
+      } else {
+        const index = ids.indexOf(item.slice(6))
+        promptParts.push(chunks[index].prompt)
+        negativeParts.push(chunks[index].negativePrompt)
+        if (position === index + 3) promptParts.push(...triggers)
+      }
+    }
+    // Scene-only extra text stays a suffix; an end trigger includes that suffix.
+    promptParts.push(
+      extras.scene?.prompt ?? '',
+      ...(options.extraChunks ?? []).map((chunk) => chunk.prompt)
+    )
+    negativeParts.push(
+      extras.scene?.negativePrompt ?? '',
+      ...(options.extraChunks ?? []).map((chunk) => chunk.negativePrompt)
+    )
+    if (position === 'end') promptParts.push(...triggers)
+    return { prompt: joinParts(...promptParts), negativePrompt: joinParts(...negativeParts) }
+  }
   const order = options.promptOrder
     ? normalizeBatchPromptOrder(options.promptOrder)
     : DEFAULT_BATCH_PROMPT_ORDER
@@ -1402,7 +1558,12 @@ export function expandReservations(
       preset,
       reservation.triggerPosition,
       frozen?.extras,
-      { extraChunks: frozen?.extraChunks, promptOrder: frozen?.promptOrder }
+      {
+        extraChunks: frozen?.extraChunks,
+        promptOrder: frozen?.promptOrder,
+        materialOrder: reservation.materialOrder,
+        sceneIds: reservation.sceneIds
+      }
     )
     if (!prompts.prompt) throw new Error(`예약 ${reservation.id}의 조합 프롬프트가 비어 있습니다.`)
     for (let repeat = 1; repeat <= reservation.count; repeat++) {

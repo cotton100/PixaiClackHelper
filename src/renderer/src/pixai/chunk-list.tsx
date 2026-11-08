@@ -1,6 +1,15 @@
 import { useDroppable } from '@dnd-kit/core'
+import { useSortable } from '@dnd-kit/sortable'
 import { Children, useEffect, useRef, useState, type ReactNode } from 'react'
-import { ChevronDown, ChevronRight, Folder, FolderInput, Pencil, Trash2 } from 'lucide-react'
+import {
+  ChevronDown,
+  ChevronRight,
+  Folder,
+  FolderInput,
+  GripVertical,
+  Pencil,
+  Trash2
+} from 'lucide-react'
 import type { Chunk, Folder as ChunkFolder } from '@shared/pixai/library'
 import { SortableItem, SortableItems } from './controls'
 import { materialDragIds, toggleFolderSelection } from './library-actions'
@@ -12,12 +21,14 @@ export function ChunkList<T extends Pick<Chunk, 'id' | 'name' | 'folderId'>>({
   search = '',
   render,
   onReorder,
+  onReorderFolders,
   onMove,
   onMoveItems,
   selectedIds,
   onSelectionChange,
   onRenameFolder,
   onDeleteFolder,
+  defaultUnfiledOpen = false,
   disabled = false,
   label = '청크'
 }: {
@@ -26,16 +37,18 @@ export function ChunkList<T extends Pick<Chunk, 'id' | 'name' | 'folderId'>>({
   search?: string
   render: (chunk: T) => ReactNode
   onReorder?: (ids: string[]) => void
+  onReorderFolders?: (ids: string[]) => void
   onMove?: (id: string, folder: string) => void
   onMoveItems?: (ids: string[], folder: string) => void
   selectedIds?: string[]
   onSelectionChange?: (ids: string[]) => void
   onRenameFolder?: (id: string, name: string) => void
   onDeleteFolder?: (id: string) => void
+  defaultUnfiledOpen?: boolean
   disabled?: boolean
   label?: string
 }): React.JSX.Element {
-  const [opened, setOpened] = useState<string[]>([])
+  const [opened, setOpened] = useState<string[]>(defaultUnfiledOpen ? [''] : [])
   const [renaming, setRenaming] = useState<string | null>(null)
   const [folderName, setFolderName] = useState('')
   const [deleting, setDeleting] = useState<string | null>(null)
@@ -73,6 +86,13 @@ export function ChunkList<T extends Pick<Chunk, 'id' | 'name' | 'folderId'>>({
             aria-label={`${label} 폴더 ${folder.name}`}
           >
             <div className="px-folder-heading-row">
+              {folder.id && onReorderFolders && (
+                <FolderGrip
+                  id={folder.id}
+                  name={`${label} 폴더 ${folder.name}`}
+                  disabled={disabled}
+                />
+              )}
               {selectable && (
                 <FolderSelection
                   name={`${label} 폴더 ${folder.name} 선택`}
@@ -239,16 +259,42 @@ export function ChunkList<T extends Pick<Chunk, 'id' | 'name' | 'folderId'>>({
       })}
     </div>
   )
-  return onReorder ? (
+  return onReorder || onReorderFolders ? (
     <SortableItems
-      ids={chunks.map((chunk) => chunk.id)}
+      ids={[
+        ...(onReorderFolders ? folders.map((folder) => 'group:' + folder.id) : []),
+        ...chunks.map((chunk) => chunk.id)
+      ]}
       onReorder={(ids) => {
-        if (!disabled) onReorder(ids)
+        if (!disabled) onReorder?.(ids.filter((id) => chunks.some((chunk) => chunk.id === id)))
       }}
-      dragLabel={(id) => `${materialDragIds(chunks, selectedIds ?? [], id).length}개 ${label} 이동`}
+      dragLabel={(id) =>
+        id.startsWith('group:')
+          ? `${folders.find((folder) => folder.id === id.slice(6))?.name ?? ''} 폴더 순서 이동`
+          : `${materialDragIds(chunks, selectedIds ?? [], id).length}개 ${label} 이동`
+      }
       onDrop={(id, target) => {
         if (disabled) return true
+        if (id.startsWith('group:')) {
+          const destinationId = target.startsWith('group:')
+            ? target.slice(6)
+            : target.startsWith('folder:')
+              ? target.slice(7)
+              : folderOf(chunks.find((chunk) => chunk.id === target) ?? ({ id: '', name: '' } as T))
+          const ids = folders.map((folder) => folder.id)
+          const from = ids.indexOf(id.slice(6)),
+            to = ids.indexOf(destinationId)
+          if (from >= 0 && to >= 0 && from !== to && onReorderFolders) {
+            ids.splice(to, 0, ids.splice(from, 1)[0])
+            onReorderFolders(ids)
+          }
+          return true
+        }
         if (!canMove) return false
+        if (target.startsWith('group:')) {
+          move(id, target.slice(6))
+          return true
+        }
         if (target.startsWith('folder:')) {
           move(id, target.slice(7))
           return true
@@ -271,6 +317,32 @@ export function ChunkList<T extends Pick<Chunk, 'id' | 'name' | 'folderId'>>({
     </SortableItems>
   ) : (
     content
+  )
+}
+
+function FolderGrip({
+  id,
+  name,
+  disabled
+}: {
+  id: string
+  name: string
+  disabled: boolean
+}): React.JSX.Element {
+  const { setNodeRef, attributes, listeners } = useSortable({ id: 'group:' + id, disabled })
+  return (
+    <button
+      ref={setNodeRef}
+      type="button"
+      className="px-grip px-folder-grip"
+      aria-label={`${name} 순서 이동`}
+      title="폴더 드래그 또는 Space를 누르고 방향키로 이동"
+      disabled={disabled}
+      {...attributes}
+      {...listeners}
+    >
+      <GripVertical size={16} />
+    </button>
   )
 }
 

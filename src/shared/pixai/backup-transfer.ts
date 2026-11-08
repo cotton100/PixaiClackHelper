@@ -30,7 +30,12 @@ export const BACKUP_CATEGORIES = [
 ] as const
 export type BackupCategory = (typeof BACKUP_CATEGORIES)[number]
 export type BackupSelection = Record<BackupCategory | 'common' | 'options', boolean>
-export const BACKUP_FOLDER_CATEGORIES = ['sceneCards', 'scenes'] as const
+export const BACKUP_FOLDER_CATEGORIES = [
+  'sceneCards',
+  'scenes',
+  'presets',
+  'commonPresets'
+] as const
 export type BackupFolderCategory = (typeof BACKUP_FOLDER_CATEGORIES)[number]
 /** Omitted category means its whole list; an empty string selects unfiled materials. */
 export type BackupFolderSelection = Partial<Record<BackupFolderCategory, string[]>>
@@ -49,6 +54,8 @@ export const BACKUP_LABELS: Record<keyof BackupSelection, string> = {
   options: '생성·화면 설정'
 }
 const FOLDERS = {
+  presets: 'presetFolders',
+  commonPresets: 'commonPresetFolders',
   characters: 'characterFolders',
   scenes: 'chunkFolders',
   sceneCards: 'sceneFolders'
@@ -166,7 +173,12 @@ export function selectBackupLibrary(
   }
   for (let cursor = 0; cursor < pending.length; cursor++) {
     const [key, id] = pending[cursor]
-    if (key === 'presets') add('commonPresets', index.presets.get(id)!.commonPresetId)
+    if (key === 'presets') {
+      const item = index.presets.get(id)!
+      add('commonPresets', item.commonPresetId)
+      add('presetFolders', item.folderId)
+    }
+    if (key === 'commonPresets') add('commonPresetFolders', index.commonPresets.get(id)!.folderId)
     if (key === 'characters') {
       const item = index.characters.get(id)!
       add('presets', item.defaultPresetId)
@@ -202,8 +214,11 @@ export function selectBackupLibrary(
     }
   }
   const library = makeLibrary()
-  for (const key of COLLECTIONS)
+  for (const key of COLLECTIONS) {
+    if ((key === 'presetFolders' || key === 'commonPresetFolders') && !Object.hasOwn(source, key))
+      continue
     Object.assign(library, { [key]: (source[key] ?? []).filter((x) => ids[key].has(x.id)) })
+  }
   // A preset without a linked set needs the source default, even when it is not
   // a replacement target. No key or path setting travels with these materials.
   if (selection.common || library.presets.some((x) => !x.commonPresetId) || selection.reservations)
@@ -443,7 +458,12 @@ export function prepareBackupImport(
   const presetRef = (p: Library['presets'][number]): void => {
     if (p.commonPresetId) p.commonPresetId = remap('commonPresets', p.commonPresetId)
   }
-  for (const preset of incoming.presets) presetRef(preset)
+  for (const preset of incoming.presets) {
+    presetRef(preset)
+    if (preset.folderId) preset.folderId = remap('presetFolders', preset.folderId)
+  }
+  for (const preset of incoming.commonPresets ?? [])
+    if (preset.folderId) preset.folderId = remap('commonPresetFolders', preset.folderId)
   for (const character of incoming.characters) {
     if (character.defaultPresetId)
       character.defaultPresetId = remap('presets', character.defaultPresetId)
@@ -483,6 +503,12 @@ export function prepareBackupImport(
     item.presetId = remap('presets', item.presetId)
     item.characterId = remap('characters', item.characterId)
     item.sceneIds = item.sceneIds.map((id) => remap('scenes', id))
+    if (item.materialOrder)
+      item.materialOrder = item.materialOrder.map((part) =>
+        part === 'common' || part === 'character'
+          ? part
+          : (`chunk:${remap('scenes', part.slice(6))}` as const)
+      )
     if ('snapshot' in item && item.snapshot) {
       item.snapshot.preset.id = item.presetId
       // Frozen common is authoritative; a deleted live set must not bind elsewhere.
@@ -500,10 +526,28 @@ export function prepareBackupImport(
       item.sourceSceneId = remap('sceneCards', item.sourceSceneId)
     if ('batch' in item && item.batch) item.batch.id = remap('batch', item.batch.id)
   }
-  for (const key of COLLECTIONS)
-    Object.assign(result, {
-      [key]: [...retained[key], ...(incoming[key] ?? [])]
-    })
+  for (const key of COLLECTIONS) {
+    if (
+      (key === 'presetFolders' || key === 'commonPresetFolders') &&
+      !Object.hasOwn(result, key) &&
+      !Object.hasOwn(incoming, key)
+    )
+      continue
+    const merged = [...retained[key], ...(incoming[key] ?? [])]
+    const category = Object.entries(FOLDERS).find(([, folder]) => folder === key)?.[0] as
+      BackupFolderCategory | undefined
+    if (mode === 'replace' && category && folders[category]) {
+      // Replacing one folder's contents must not move that folder to the end.
+      const byId = new Map(merged.map((item) => [item.id, item] as const))
+      Object.assign(result, {
+        [key]: [...(result[key] ?? []), ...merged].flatMap((item) => {
+          const kept = byId.get(item.id)
+          byId.delete(item.id)
+          return kept ? [kept] : []
+        })
+      })
+    } else Object.assign(result, { [key]: merged })
+  }
   result.commonPresets = [...(result.commonPresets ?? []), ...importedDefault]
   // A removed linked set cannot silently switch existing presets to the default.
   if (

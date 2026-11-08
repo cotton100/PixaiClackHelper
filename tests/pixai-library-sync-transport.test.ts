@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { request as httpRequest, createServer } from 'node:http'
 import { LibrarySyncServer, LIBRARY_SYNC_PORT, syncHash } from '../src/main/pixai/library-sync'
 import { makeLibrary } from '../src/shared/pixai/library'
@@ -8,6 +8,33 @@ import type { SyncExchange } from '../src/shared/pixai/execution'
 import { MAX_WORKSPACE_BYTES } from '../src/shared/pixai/expansion-budget'
 import { LibrarySyncApplyBridge } from '../src/main/pixai/library-sync-apply-bridge'
 import type { LibrarySyncApplyRequest } from '../src/shared/pixai/execution'
+
+// Keep the real HTTP path/Host/auth contract, but never bind the installed app's port.
+const testListener = vi.hoisted(() => ({ port: 0 }))
+vi.mock('node:http', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:http')>()
+  return {
+    ...actual,
+    createServer: (...args: Parameters<typeof actual.createServer>) => {
+      const server = actual.createServer(...args)
+      const listen = server.listen
+      vi.spyOn(server, 'listen').mockImplementation((...listenArgs: unknown[]) => {
+        if (listenArgs[0] === 50321) listenArgs[0] = testListener.port
+        return Reflect.apply(listen, server, listenArgs)
+      })
+      return server
+    }
+  }
+})
+beforeAll(async () => {
+  const probe = createServer()
+  await new Promise<void>((resolve, reject) => {
+    probe.once('error', reject)
+    probe.listen(0, '127.0.0.1', resolve)
+  })
+  testListener.port = (probe.address() as import('node:net').AddressInfo).port
+  await new Promise<void>((resolve) => probe.close(() => resolve()))
+})
 
 const active: LibrarySyncServer[] = []
 afterEach(async () => {
@@ -38,7 +65,7 @@ function call(
     const req = httpRequest(
       {
         host: '127.0.0.1',
-        port: LIBRARY_SYNC_PORT,
+        port: testListener.port,
         path: `/v1/library-sync/${path}`,
         method: options.method ?? 'POST',
         headers: {
@@ -122,6 +149,73 @@ async function propose(token: string, script: SyncLibrary) {
   expect(result.body.state).toBe('preview')
   return result.body as SyncExchange
 }
+
+describe('new material folder client compatibility', () => {
+  const headers = { 'X-Pixai-Library-Features': 'material-folders-v1' }
+  it('blocks an old client before preview or writes while a supported client can apply and ack', async () => {
+    const io = fixture(),
+      server = io.create(),
+      token = await connect(server)
+    const app = empty()
+    app.presetFolders = [{ id: 'pf', name: 'Preset folder' }]
+    app.commonPresetFolders = [{ id: 'cf', name: 'Common folder' }]
+    io.setCurrent(app)
+    const blocked = await call(
+      'exchange',
+      { library: empty(), automatic: true, requestSync: true },
+      token
+    )
+    expect(blocked.body.state).toBe('blocked')
+    expect(blocked.body.message).toContain('0.10.22')
+    expect(io.apply).not.toHaveBeenCalled()
+    expect(JSON.parse(io.saved!)).not.toHaveProperty('pending')
+    const preview = await call(
+      'exchange',
+      { library: empty(), automatic: false, requestSync: true },
+      token,
+      { headers }
+    )
+    expect(preview.body.state).toBe('preview')
+    const id = preview.body.proposal.id
+    const approved = await call('approve', { id, choices: {} }, token, { headers })
+    expect(approved.body.state).toBe('apply')
+    expect(approved.body.library.presetFolders).toEqual(app.presetFolders)
+    expect((await call('ack', { id, library: approved.body.library }, token)).body.state).toBe(
+      'blocked'
+    )
+    expect(JSON.parse(io.saved!)).toHaveProperty('pending')
+    expect(
+      (await call('ack', { id, library: approved.body.library }, token, { headers })).body.state
+    ).toBe('idle')
+    expect(JSON.parse(io.saved!).baseline.commonPresetFolders).toEqual(app.commonPresetFolders)
+  })
+  it('does not mistake an old client for folder deletion after the app clears its final folder', async () => {
+    const io = fixture(),
+      server = io.create(),
+      token = await connect(server)
+    const app = empty()
+    app.presetFolders = [{ id: 'pf', name: 'Preset folder' }]
+    io.setCurrent(app)
+    const preview = await call(
+      'exchange',
+      { library: empty(), automatic: false, requestSync: true },
+      token,
+      { headers }
+    )
+    const id = preview.body.proposal.id
+    const approved = await call('approve', { id, choices: {} }, token, { headers })
+    await call('ack', { id, library: approved.body.library }, token, { headers })
+    io.setCurrent(empty())
+    const savedBefore = io.saved
+    expect((await call('exchange', { library: empty(), automatic: true }, token)).body.state).toBe(
+      'blocked'
+    )
+    expect(io.saved).toBe(savedBefore)
+    const next = await call('exchange', { library: app, automatic: true }, token, { headers })
+    expect(next.body.state).toBe('apply')
+    expect(next.body.library).not.toHaveProperty('presetFolders')
+  })
+})
 
 describe('loopback sync boundary', () => {
   it('starts disabled, requires explicit enable/pair and stores only token hash', async () => {
@@ -228,7 +322,7 @@ describe('loopback sync boundary', () => {
       const req = httpRequest(
         {
           host: '127.0.0.1',
-          port: LIBRARY_SYNC_PORT,
+          port: testListener.port,
           path: '/v1/library-sync/exchange',
           method: 'POST',
           headers: {

@@ -99,6 +99,8 @@ export function BackupSettings({
     sceneFolders: '씬 그룹',
     commonPresets: '공통문 세트 목록',
     'presets.commonPresetId': '프리셋의 공통문 세트 연결',
+    'reservations.materialOrder': '예약의 자유 문구 순서',
+    'combinations.materialOrder': '최근 조합·즐겨찾기의 자유 문구 순서',
     'options.ui': '칸 비율·씬 보기·접힘 설정',
     sceneCards: '씬 카드',
     casts: '저장 출연',
@@ -176,7 +178,8 @@ export function BackupSettings({
           <h2>백업 가져오기</h2>
           <p>
             앱의 선택 백업과 기존 앱·스크립트 백업을 읽을 수 있습니다. 파일을 골라도 바로 적용되지는
-            않습니다.
+            않습니다. 브라우저의 PNG 정보 기록 선택은 가져오지 않으며 이 앱의 기록 설정을
+            유지합니다.
           </p>
           <label className="px-file">
             <Upload size={18} />
@@ -366,7 +369,8 @@ export function BackupSettings({
         </div>
         <small>
           스크립트용은 구형 호환 전체 백업입니다. 최신 앱과 스크립트 사이에서는 앱용 선택 백업을
-          사용하세요. 위 선택 범위는 앱용에 적용됩니다.
+          사용하세요. 위 선택 범위는 앱용에 적용됩니다. 자유 문구 순서가 있는 예약·조합 기록을
+          옮기려면 스크립트 0.10.22 이상과 앱용 백업을 사용하세요.
         </small>
         {exportTarget && (
           <div className="px-confirm">
@@ -375,11 +379,18 @@ export function BackupSettings({
               dropped ? (
                 <>
                   <p>
-                    추가 문구가 포함된 예약 {dropped.reservations}개를 제외합니다
+                    문구나 순서를 보존할 수 없는 예약 {dropped.reservations}개를 제외합니다
                     {dropped.reservationsWithPresetText > 0 &&
                       ` (그중 프리셋 공통 문구가 든 예약 ${dropped.reservationsWithPresetText}개)`}
                     .
                   </p>
+                  {dropped.combinationsWithMaterialOrder > 0 && (
+                    <p>
+                      자유 문구 순서가 있는 최근 조합·즐겨찾기{' '}
+                      {dropped.combinationsWithMaterialOrder}개를 제외합니다. 전체 순서를 보관하려면
+                      앱용 백업을 사용해 주세요.
+                    </p>
+                  )}
                   {dropped.presetsWithText.length > 0 && (
                     <p>
                       프리셋 {dropped.presetsWithText.map((name) => `「${name}」`).join(', ')}의

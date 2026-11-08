@@ -68,14 +68,36 @@ export function CommonEditor({
     >
       <small>{isNew ? '새 공통문 세트 · 저장 전' : dirty ? '저장 안 됨' : '저장됨'}</small>
       {draft.id ? (
-        <label>
-          공통문 세트 이름
-          <input
-            aria-label="공통문 세트 이름"
-            value={draft.name}
-            onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-          />
-        </label>
+        <>
+          <label>
+            공통문 세트 이름
+            <input
+              aria-label="공통문 세트 이름"
+              value={draft.name}
+              onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+            />
+          </label>
+          <label>
+            공통문 폴더
+            <select
+              aria-label="공통문 폴더 선택"
+              value={draft.folderId ?? ''}
+              onChange={(event) => {
+                const next = { ...draft }
+                if (event.target.value) next.folderId = event.target.value
+                else delete next.folderId
+                setDraft(next)
+              }}
+            >
+              <option value="">미분류</option>
+              {(workspace.library.commonPresetFolders ?? []).map((folder) => (
+                <option key={folder.id} value={folder.id}>
+                  {folder.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </>
       ) : (
         <p>세트를 연결하지 않은 모델·LoRA 프리셋에 적용합니다.</p>
       )}

@@ -51,6 +51,15 @@
   gap: 4px;
   min-width: 0;
 }
+.px-folder-heading-row > .px-folder-grip {
+  flex: 0 0 auto;
+  padding: 4px;
+  touch-action: none;
+}
+.px-default-common {
+  margin-bottom: 10px;
+  border-style: dashed;
+}
 .px-folder-heading-row > .px-folder-heading {
   flex: 1;
   min-width: 0;

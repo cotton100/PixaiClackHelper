@@ -76,7 +76,8 @@ export function importImageComposition(
       chunks.filter((v): v is NonNullable<typeof v> => !!v),
       { ...oldPreset, loras: mergedLoras },
       draft.triggerPosition,
-      draft.card?.extra ? { scene: draft.card.extra } : {}
+      draft.card?.extra ? { scene: draft.card.extra } : {},
+      { materialOrder: draft.materialOrder, sceneIds: draft.sceneIds }
     )
   }
   const preset = selected.model

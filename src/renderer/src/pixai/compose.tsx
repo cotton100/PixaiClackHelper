@@ -16,7 +16,13 @@ import {
 import { makeSceneCard } from '@shared/pixai/batch-reserve'
 import { ImageSummary, StageChips, SortableItem, SortableItems, SplitPanes } from './controls'
 import { savePaneUI, type PixaiStore } from './store'
-import type { ComposeDraft } from './composition'
+import {
+  composeOrder,
+  reorderComposeDraft,
+  toggleComposeChunk,
+  triggerAfter,
+  type ComposeDraft
+} from './composition'
 import { ChunkList } from './chunk-list'
 import { resolveImageOptions } from '@shared/pixai/generation-options'
 import { GenerationSettings } from './generation-settings'
@@ -66,6 +72,15 @@ export function Compose({
       library.scenes.find((item) => item.id === id)
   )
   const completeChunks = chunks.filter((item): item is NonNullable<typeof item> => !!item)
+  const order = composeOrder(draft)
+  // Missing chunks remain visible in the editor and block reservation. Preview
+  // only the available text, retaining its relative order and trigger anchor.
+  const previewDraft = reorderComposeDraft(
+    draft,
+    order.filter(
+      (id) => !id.startsWith('chunk:') || completeChunks.some((chunk) => id === `chunk:${chunk.id}`)
+    )
+  )
   // The preset's own common text rides inside the common block, so the trigger index is unchanged.
   const commonName =
     library.commonPresets?.find((item) => item.id === preset?.commonPresetId)?.name ?? '기본 공통문'
@@ -77,21 +92,12 @@ export function Compose({
         character ?? { prompt: '', negativePrompt: '' },
         completeChunks,
         { ...preset, loras: merged.loras },
-        draft.triggerPosition === 'end'
-          ? 'end'
-          : Math.min(draft.triggerPosition, completeChunks.length + 2),
-        draft.card?.extra ? { scene: draft.card.extra } : {}
+        previewDraft.triggerPosition,
+        draft.card?.extra ? { scene: draft.card.extra } : {},
+        { materialOrder: previewDraft.materialOrder, sceneIds: previewDraft.sceneIds }
       )
   function toggle(id: string): void {
-    const ids = draft.sceneIds.includes(id)
-      ? draft.sceneIds.filter((item) => item !== id)
-      : [...draft.sceneIds, id]
-    onChange({
-      ...draft,
-      sceneIds: ids,
-      triggerPosition:
-        draft.triggerPosition === 'end' ? 'end' : Math.min(draft.triggerPosition, ids.length + 2)
-    })
+    onChange(toggleComposeChunk(draft, id))
   }
   async function run(action: () => Promise<void>, message = ''): Promise<void> {
     try {
@@ -117,6 +123,7 @@ export function Compose({
       sceneIds: draft.sceneIds,
       count: draft.count,
       triggerPosition: draft.triggerPosition,
+      ...(draft.materialOrder ? { materialOrder: draft.materialOrder } : {}),
       imageOptions,
       favorite,
       name: `${character!.name} · ${completeChunks.map((chunk) => chunk.name).join(' · ')}`,
@@ -131,6 +138,7 @@ export function Compose({
       sceneIds: item.sceneIds,
       count: item.count,
       triggerPosition: item.triggerPosition ?? 1,
+      materialOrder: item.materialOrder,
       imageOptions: item.imageOptions
     })
     setNotice('조합을 불러왔습니다. 재료와 순서를 확인해 주세요.')
@@ -146,6 +154,7 @@ export function Compose({
       ...(draft.card ? { sourceSceneId: draft.card.id } : {}),
       count: draft.count,
       triggerPosition: draft.triggerPosition,
+      ...(draft.materialOrder ? { materialOrder: draft.materialOrder } : {}),
       imageOptions,
       snapshot: normalizeSnapshot({
         common: resolvePresetCommon(library, preset),
@@ -179,12 +188,13 @@ export function Compose({
       }
     })
   }
-  const order = ['common', 'character', ...draft.sceneIds.map((id) => `chunk:${id}`)]
-  order.splice(
-    draft.triggerPosition === 'end' ? order.length : draft.triggerPosition,
-    0,
-    'triggers'
-  )
+  function materialLabel(id: string): string {
+    return id === 'common'
+      ? commonLabel
+      : id === 'character'
+        ? '캐릭터'
+        : (completeChunks.find((chunk) => `chunk:${chunk.id}` === id)?.name ?? '누락 청크')
+  }
   return (
     <SplitPanes
       name="조합"
@@ -430,20 +440,10 @@ export function Compose({
           )}
           <div className="px-order">
             <SortableItems
+              immediateDrag
               ids={order}
               onReorder={(ids) => {
-                // Common and character stay in order; chunks and the trigger block move.
-                const materials = ids.filter((id) => id !== 'triggers')
-                if (materials[0] !== 'common' || materials[1] !== 'character') {
-                  setNotice('공통문과 캐릭터는 앞에 고정됩니다. 청크와 트리거 순서를 바꿔 주세요.')
-                  return
-                }
-                onChange({
-                  ...draft,
-                  sceneIds: materials.slice(2).map((id) => id.slice(6)),
-                  triggerPosition:
-                    ids.indexOf('triggers') === ids.length - 1 ? 'end' : ids.indexOf('triggers')
-                })
+                onChange(reorderComposeDraft(draft, ids))
               }}
             >
               {order.map((id) => (
@@ -502,17 +502,14 @@ export function Compose({
                 })
               }
             >
-              {Array.from({ length: draft.sceneIds.length + 3 }, (_, i) => (
-                <option key={i} value={i}>
-                  {i === 0
-                    ? '맨 앞'
-                    : i === 1
-                      ? '공통문 뒤'
-                      : i === 2
-                        ? '캐릭터 뒤'
-                        : `${i - 2}번째 청크 뒤`}
-                </option>
-              ))}
+              <option value={0}>맨 앞</option>
+              {order
+                .filter((id) => id !== 'triggers')
+                .map((id) => (
+                  <option key={id} value={triggerAfter(id, draft.sceneIds)}>
+                    {materialLabel(id)} 뒤
+                  </option>
+                ))}
               <option value="end">맨 뒤 (씬 추가 문구 포함)</option>
             </select>
           </label>
@@ -554,6 +551,8 @@ export function Compose({
           </button>
           <small>
             청크 순서·트리거 위치·비율을 저장합니다. 캐릭터와 프리셋은 씬에 포함하지 않습니다.
+            {draft.materialOrder &&
+              ' 공통문·캐릭터 사이의 청크 배치는 씬에 포함되지 않습니다. 전체 조합 순서는 즐겨찾기에 저장해 주세요.'}
           </small>
         </footer>
       </section>
