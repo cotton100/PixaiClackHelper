@@ -8,6 +8,42 @@ import {
 import type { ModelLinkInfo } from './model-link'
 import type { UpdateStatus } from './updates'
 import type { ImageInfo } from './image-info'
+import type { SyncLibrary, SyncConflict } from './library-sync'
+
+export interface SyncProposal {
+  id: string
+  library: SyncLibrary
+  conflicts: SyncConflict[]
+  initial: boolean
+  appCount: number
+  scriptCount: number
+  mergedCount: number
+}
+export interface SyncExchange {
+  state: 'idle' | 'preview' | 'apply' | 'blocked'
+  proposal?: SyncProposal
+  transactionId?: string
+  library?: SyncLibrary
+  expectedScriptHash?: string
+  message?: string
+}
+export interface LibrarySyncStatus {
+  enabled: boolean
+  listening: boolean
+  paired: boolean
+  code?: string
+  expiresAt?: number
+  lastSeen?: number
+  lastSyncedAt?: number
+  exchange: SyncExchange
+  message?: string
+}
+export interface LibrarySyncApplyRequest {
+  id: string
+  expiresAt: number
+  expected: SyncLibrary
+  next: SyncLibrary
+}
 
 export interface QueuedJob {
   registeredAt?: number
@@ -86,6 +122,20 @@ export interface SceneThumbnailStatus {
   images?: SceneThumbnail[]
 }
 export interface PixaiInvokeMap {
+  'pixai:library-sync-status': { req: Record<string, never>; res: LibrarySyncStatus }
+  'pixai:library-sync-enable': { req: { enabled: boolean }; res: LibrarySyncStatus }
+  'pixai:library-sync-pair': { req: Record<string, never>; res: LibrarySyncStatus }
+  'pixai:library-sync-request': { req: Record<string, never>; res: LibrarySyncStatus }
+  'pixai:library-sync-approve': {
+    req: { id: string; choices: Record<string, 'app' | 'script'> }
+    res: LibrarySyncStatus
+  }
+  'pixai:library-sync-cancel': { req: { id: string }; res: LibrarySyncStatus }
+  'pixai:library-sync-disconnect': { req: Record<string, never>; res: LibrarySyncStatus }
+  'pixai:library-sync-applied': {
+    req: { id: string; ok: boolean; error?: string }
+    res: { accepted: boolean }
+  }
   'tags:search': {
     req: { query: string; limit?: number }
     res: { items: { tag: string; count: number; type: string }[] }

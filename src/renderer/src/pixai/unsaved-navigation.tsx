@@ -1,15 +1,16 @@
-import { useEffect, useRef, useState } from 'react'
+import { useContext, useEffect, useRef, useState } from 'react'
+import { UnsavedEditorsContext, type UnsavedEditor } from './unsaved-editors'
 
 /** Save/discard/cancel also keeps the current editor mounted if persistence fails. */
 interface UnsavedNavigation {
   register(dirty: boolean, save: () => Promise<boolean>, discard?: () => void): () => void
+  hasDirty(): boolean
   request(action: () => void): void
   dialog: React.JSX.Element | null
 }
 export function useUnsavedNavigation(): UnsavedNavigation {
-  const editors = useRef(
-    new Set<{ dirty: boolean; save: () => Promise<boolean>; discard?: () => void }>()
-  )
+  const shared = useContext(UnsavedEditorsContext)
+  const editors = useRef(new Set<UnsavedEditor>())
   const next = useRef<(() => void) | null>(null)
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -30,10 +31,13 @@ export function useUnsavedNavigation(): UnsavedNavigation {
     register(dirty: boolean, save: () => Promise<boolean>, discard?: () => void): () => void {
       const entry = { dirty, save, discard }
       editors.current.add(entry)
+      shared?.add(entry)
       return () => {
         editors.current.delete(entry)
+        shared?.delete(entry)
       }
     },
+    hasDirty: () => [...editors.current].some((entry) => entry.dirty),
     request(action: () => void): void {
       if (![...editors.current].some((entry) => entry.dirty)) {
         action()

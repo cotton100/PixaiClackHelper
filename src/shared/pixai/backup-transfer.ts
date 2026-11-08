@@ -320,7 +320,7 @@ export function parseTransferBackup(text: string): TransferBackup {
 }
 
 /** Keep retained, not-yet-registered reservations unchanged when materials change. */
-function freezeReservation(library: Library, reservation: Reservation): Reservation {
+export function freezeReservation(library: Library, reservation: Reservation): Reservation {
   if (reservation.snapshot) return reservation
   const preset = library.presets.find((x) => x.id === reservation.presetId)
   const character = library.characters.find((x) => x.id === reservation.characterId)

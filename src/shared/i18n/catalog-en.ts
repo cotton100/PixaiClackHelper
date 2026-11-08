@@ -1,6 +1,53 @@
 import type { MessageCatalog } from './catalog-ko'
 
 export const EN = {
+  'pixai.sync.title': 'Same-PC library sync',
+  'pixai.sync.scope':
+    'Exchange materials, folders and saved arrangements with the PixAI script on this PC. Reservations, jobs, images, API keys, save paths and app settings stay local.',
+  'pixai.sync.busy': 'Finish saving, loading or resolving workspace conflicts before syncing.',
+  'pixai.sync.dirty':
+    'There are unsaved edits. Save or cancel them in their editor, then sync again. Your input is preserved.',
+  'pixai.sync.stale':
+    'App materials changed after the preview. Sync again to review the current versions.',
+  'pixai.sync.failed': 'Sync could not finish. Check the current state and try again.',
+  'pixai.sync.unavailable': 'The sync connection is unavailable.',
+  'pixai.sync.enable': 'Enable library sync on this PC',
+  'pixai.sync.loading': 'Checking sync status…',
+  'pixai.sync.off': 'Off · connections are not accepted.',
+  'pixai.sync.paired': 'Paired with the script · keep both windows open to exchange changes.',
+  'pixai.sync.unpaired': 'Enabled · waiting for a script connection.',
+  'pixai.sync.lastSync': 'Last synced: {0}',
+  'pixai.sync.replacePair': 'Disconnect and create a new code',
+  'pixai.sync.newCode': 'New pairing code',
+  'pixai.sync.sync': 'Preview sync',
+  'pixai.sync.disconnect': 'Disconnect',
+  'pixai.sync.pairHelp':
+    'A new code revokes the previous connection and code. Paste it into the script settings on this PC.',
+  'pixai.sync.code': 'One-time pairing code',
+  'pixai.sync.expires': 'Expires in {0}s',
+  'pixai.sync.expired': 'This code expired. Create a new code.',
+  'pixai.sync.expiredRequest': 'The sync apply request expired. Sync again.',
+  'pixai.sync.autoHelp':
+    'Opt in to automatic sync in the script settings. First sync and conflicts always need confirmation; unsaved edits block application.',
+  'pixai.sync.firstPreview': 'First sync preview',
+  'pixai.sync.preview': 'Sync preview',
+  'pixai.sync.app': 'App',
+  'pixai.sync.script': 'Script',
+  'pixai.sync.result': 'Combined materials',
+  'pixai.sync.unresolved': 'Finalized after resolving conflicts',
+  'pixai.sync.firstHelp':
+    'First sync combines both libraries. Choose a version where the same item differs. Nothing is applied before confirmation.',
+  'pixai.sync.previewHelp':
+    'Apply the reviewed result to both sides. Sync completes after the script confirms it has saved.',
+  'pixai.sync.conflictsHelp': 'Choose a version for each conflicting change.',
+  'pixai.sync.useApp': 'Use app version',
+  'pixai.sync.useScript': 'Use script version',
+  'pixai.sync.deleted': 'Deleted / item absent',
+  'pixai.sync.apply': 'Apply reviewed changes',
+  'pixai.sync.cancel': 'Cancel',
+  'pixai.sync.pending': 'Applied in the app. Waiting for the script to confirm its save.',
+  'pixai.sync.waiting':
+    'Waiting for save confirmation. Another sync cannot apply until it finishes. If the app remains unresponsive, reopen it to check the saved state.',
   'ui.decreaseBatchCount': 'Decrease batch count',
   'ui.batchCount': 'Batch count',
   'ui.increaseBatchCount': 'Increase batch count',

@@ -1,4 +1,51 @@
 export const KO = {
+  'pixai.sync.title': '같은 PC 라이브러리 동기화',
+  'pixai.sync.scope':
+    '이 PC의 PixAI 스크립트와 재료·폴더·저장 구성을 주고받습니다. 예약·생성 대기열·이미지·API 키·저장 경로·앱 설정은 각자 유지합니다.',
+  'pixai.sync.busy': '저장·불러오기 또는 충돌 처리가 끝난 뒤 동기화해 주세요.',
+  'pixai.sync.dirty':
+    '저장하지 않은 편집 내용이 있습니다. 해당 편집기에서 저장하거나 취소한 뒤 다시 동기화해 주세요. 입력은 그대로 유지됩니다.',
+  'pixai.sync.stale':
+    '미리보기 후 앱 자료가 바뀌었습니다. 다시 동기화하여 최신 내용을 확인해 주세요.',
+  'pixai.sync.failed': '동기화를 완료하지 못했습니다. 현재 내용을 확인한 뒤 다시 시도해 주세요.',
+  'pixai.sync.unavailable': '동기화 연결을 사용할 수 없습니다.',
+  'pixai.sync.enable': '이 PC에서 라이브러리 동기화 사용',
+  'pixai.sync.loading': '동기화 상태 확인 중…',
+  'pixai.sync.off': '꺼짐 · 연결을 받지 않습니다.',
+  'pixai.sync.paired': '스크립트와 연결됨 · 두 화면이 열려 있어야 주고받을 수 있습니다.',
+  'pixai.sync.unpaired': '켜짐 · 스크립트 연결을 기다립니다.',
+  'pixai.sync.lastSync': '마지막 동기화: {0}',
+  'pixai.sync.replacePair': '기존 연결 해제 후 새 코드',
+  'pixai.sync.newCode': '새 연결 코드',
+  'pixai.sync.sync': '동기화 미리보기',
+  'pixai.sync.disconnect': '연결 해제',
+  'pixai.sync.pairHelp':
+    '새 코드를 만들면 기존 연결·이전 코드는 해제됩니다. 코드를 이 PC의 스크립트 설정에 붙여 넣어 주세요.',
+  'pixai.sync.code': '일회용 연결 코드',
+  'pixai.sync.expires': '{0}초 후 만료',
+  'pixai.sync.expired': '코드가 만료됐습니다. 새 코드를 만들어 주세요.',
+  'pixai.sync.expiredRequest': '동기화 적용 요청이 만료됐습니다. 다시 동기화해 주세요.',
+  'pixai.sync.autoHelp':
+    '자동 동기화는 스크립트 설정에서 직접 켭니다. 첫 동기화와 충돌은 항상 확인을 기다리며, 편집 중인 내용이 있으면 적용하지 않습니다.',
+  'pixai.sync.firstPreview': '첫 동기화 미리보기',
+  'pixai.sync.preview': '동기화 미리보기',
+  'pixai.sync.app': '앱',
+  'pixai.sync.script': '스크립트',
+  'pixai.sync.result': '합친 자료',
+  'pixai.sync.unresolved': '충돌 선택 후 확정',
+  'pixai.sync.firstHelp':
+    '처음에는 양쪽 자료를 합칩니다. 같은 항목을 다르게 저장했다면 사용할 쪽을 골라 주세요. 확인 전에는 적용하지 않습니다.',
+  'pixai.sync.previewHelp':
+    '확인한 내용을 양쪽에 반영합니다. 스크립트의 저장 확인까지 끝나야 동기화가 완료됩니다.',
+  'pixai.sync.conflictsHelp': '서로 다른 변경이 있는 항목마다 사용할 내용을 선택해 주세요.',
+  'pixai.sync.useApp': '앱 내용 사용',
+  'pixai.sync.useScript': '스크립트 내용 사용',
+  'pixai.sync.deleted': '삭제됨 / 해당 항목 없음',
+  'pixai.sync.apply': '확인한 내용 적용',
+  'pixai.sync.cancel': '취소',
+  'pixai.sync.pending': '앱에 반영했습니다. 스크립트가 저장을 확인할 때까지 기다립니다.',
+  'pixai.sync.waiting':
+    '저장 확인을 기다립니다. 확인 전에는 다음 동기화를 반영하지 않습니다. 계속 응답이 없으면 앱을 다시 열어 저장 상태를 확인해 주세요.',
   'ui.decreaseBatchCount': '배치 수 감소',
   'ui.batchCount': '배치 수',
   'ui.increaseBatchCount': '배치 수 증가',

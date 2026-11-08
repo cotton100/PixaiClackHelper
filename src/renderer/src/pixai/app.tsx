@@ -21,12 +21,23 @@ import './pixai.css'
 import { ExecutionQueue } from './execution'
 import { ImageInformation } from './image-info'
 import { appIdentity, channelForVersion } from '@shared/pixai/channels'
+import { LibrarySyncController } from './library-sync'
+import { UnsavedNavigationProvider } from './unsaved-navigation-provider'
 
 export default function PixaiApp({
   store = usePixaiStore
 }: {
   store?: PixaiStore
 }): React.JSX.Element {
+  return (
+    <UnsavedNavigationProvider>
+      <LibrarySyncController store={store} />
+      <PixaiWorkspace store={store} />
+    </UnsavedNavigationProvider>
+  )
+}
+
+function PixaiWorkspace({ store }: { store: PixaiStore }): React.JSX.Element {
   const { workspace, ready, busy, draftSaving, conflict, error } = store()
   const [confirmReload, setConfirmReload] = useState(false)
   const [tab, setTab] = useState('compose')
