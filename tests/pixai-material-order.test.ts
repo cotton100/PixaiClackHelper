@@ -55,6 +55,35 @@ function reservation(): Reservation {
 }
 
 describe('full composition material order', () => {
+  it('reads a script v2 full backup with ordered reservations without changing the desktop PNG preference', () => {
+    const library = pixaiLibrary()
+    library.reservations = [freezeReservation(library, reservation())]
+    const original = makeSettingsBackup(library, options, meta)
+    const incoming = {
+      ...original,
+      version: 2,
+      options: { ...original.options, embedMetadata: true }
+    }
+    const parsed = parseSettingsBackup(JSON.stringify(incoming))
+    expect(parsed).toEqual(original)
+    expect(parseTransferBackup(JSON.stringify(incoming)).backup).toEqual(original)
+    expect(expandReservations(parsed.library)[0].prompt).toBe(
+      'smile, quality, trigger, wave, alice'
+    )
+  })
+
+  it('keeps strict version, option and secret checks for script v2 backup conversion', () => {
+    const original = makeSettingsBackup(pixaiLibrary(), options, meta)
+    for (const invalid of [
+      { ...original, version: 3 },
+      { ...original, version: 2, options: { ...options, embedMetadata: 'true' } },
+      { ...original, version: 2, options: { ...options, apiKey: 'fixture-not-a-key' } },
+      { ...original, version: 2, options: { ...options, api: { token: 'fixture-not-a-key' } } },
+      { ...original, options: { ...options, embedMetadata: true } }
+    ])
+      expect(() => parseSettingsBackup(JSON.stringify(invalid))).toThrow()
+  })
+
   it('requires an exact permutation and agrees with the ordered chunk ID list', () => {
     expect(normalizeMaterialOrder(undefined, sceneIds)).toEqual([
       'common',

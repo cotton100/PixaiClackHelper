@@ -1339,19 +1339,28 @@ export function parseSettingsBackup(text: string): SettingsBackup {
     'library',
     'options'
   ])
-  if (source.format !== 'pixai-web-queue-settings' || source.version !== 1)
+  if (source.format !== 'pixai-web-queue-settings' || ![1, 2].includes(source.version as number))
     throw new Error('지원하지 않는 설정 백업 형식 또는 버전입니다.')
   if (typeof source.appVersion !== 'string' || !source.appVersion.trim())
     throw new Error('백업의 스크립트 버전을 확인해 주세요.')
   if (typeof source.exportedAt !== 'string' || !Number.isFinite(Date.parse(source.exportedAt)))
     throw new Error('백업의 저장 시각을 확인해 주세요.')
+  // Browser v2 adds its PNG-write preference. The desktop keeps that setting
+  // outside workspace options; importing a library must not enable disclosure.
+  let importedOptions = source.options
+  if (source.version === 2) {
+    const options = presetObject(source.options, '대기열 옵션')
+    if (hasOwn(options, 'embedMetadata') && typeof options.embedMetadata !== 'boolean')
+      throw new Error('PNG 기록 옵션은 체크 상태여야 합니다.')
+    importedOptions = omitKey(options, 'embedMetadata')
+  }
   return {
     format: 'pixai-web-queue-settings',
     version: 1,
     appVersion: source.appVersion.trim(),
     exportedAt: new Date(Date.parse(source.exportedAt)).toISOString(),
     library: strictLibrary(source.library),
-    options: normalizeSettingsOptions(source.options)
+    options: normalizeSettingsOptions(importedOptions)
   }
 }
 

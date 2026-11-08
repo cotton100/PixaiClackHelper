@@ -178,7 +178,8 @@ export function BackupSettings({
           <h2>백업 가져오기</h2>
           <p>
             앱의 선택 백업과 기존 앱·스크립트 백업을 읽을 수 있습니다. 파일을 골라도 바로 적용되지는
-            않습니다.
+            않습니다. 브라우저의 PNG 정보 기록 선택은 가져오지 않으며 이 앱의 기록 설정을
+            유지합니다.
           </p>
           <label className="px-file">
             <Upload size={18} />
