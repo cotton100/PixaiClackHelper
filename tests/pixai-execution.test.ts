@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from 'vitest'
-import { buildPayload, type QueuedJob, type SavedMedia } from '../src/shared/pixai/execution'
+import {
+  buildPayload,
+  type ExecutionJob,
+  type QueuedJob,
+  type SavedMedia
+} from '../src/shared/pixai/execution'
 import { expandReservations } from '../src/shared/pixai/library'
 import { pixaiLibrary } from './fixtures/pixai-workspace'
 import { PixaiRunner } from '../src/main/pixai/runner'
@@ -121,6 +126,52 @@ describe('PixAI generation boundary', () => {
     bad.request.configuration.loras[0].weight = 1.1
     expect(() => buildPayload(bad, 42)).toThrow('0~1')
     expect(() => buildPayload({ ...job(), imageCount: 0 }, 42)).toThrow('1장 또는 4장')
+  })
+  it('keeps all twelve LoRAs in order when building, persisting and restoring a request', async () => {
+    const input = job()
+    input.request.configuration.loras = Array.from({ length: 12 }, (_, index) => ({
+      id: String(30 + index),
+      versionId: String(300 + index),
+      name: `LoRA ${index + 1}`,
+      weight: index / 12,
+      triggerWords: `trigger-${index + 1}`
+    }))
+    const expected = input.request.configuration.loras.map((lora) => ({
+      modelId: lora.versionId,
+      weight: lora.weight,
+      triggerWords: ''
+    }))
+    const before = structuredClone(input)
+    expect(buildPayload(input, 42).loras).toEqual(expected)
+    expect(input).toEqual(before)
+    const f = fixture()
+    f.runner.start([input], '/output', 1, false, true)
+    await finished(f.runner)
+    expect(f.io.create).toHaveBeenCalledOnce()
+    expect(f.runner.status().jobs[0].payload.loras).toEqual(expected)
+    expect(new PixaiRunner(f.io).status().jobs[0]).toMatchObject({
+      state: 'done',
+      payload: { loras: expected },
+      metadataReferences: { loraModelIds: input.request.configuration.loras.map((lora) => lora.id) }
+    })
+  })
+  it('still rejects invalid IDs, weights and duplicate versions after the fifth LoRA', () => {
+    const input = job()
+    input.request.configuration.loras = Array.from({ length: 12 }, (_, index) => ({
+      id: String(30 + index),
+      versionId: String(300 + index),
+      name: '',
+      weight: 0.5
+    }))
+    const invalidId = structuredClone(input)
+    invalidId.request.configuration.loras[11].versionId = 'not-an-id'
+    expect(() => buildPayload(invalidId, 42)).toThrow('숫자 문자열')
+    const invalidWeight = structuredClone(input)
+    invalidWeight.request.configuration.loras[11].weight = 1.1
+    expect(() => buildPayload(invalidWeight, 42)).toThrow('0~1')
+    const duplicate = structuredClone(input)
+    duplicate.request.configuration.loras[11].versionId = '300'
+    expect(() => buildPayload(duplicate, 42)).toThrow('같은 LoRA 버전')
   })
   it('submits once, saves all four outputs, and does not resubmit after restart', async () => {
     const f = fixture()
@@ -260,6 +311,118 @@ describe('PixAI generation boundary', () => {
     await finished(f.runner)
     expect(f.runner.status().jobs[0].state).toBe('failed')
   })
+  it.each([400, 403, 422, 500])(
+    'stops on an actual client HTTP %i response after submitting seven LoRAs, preserving accepted and queued work',
+    async (httpStatus) => {
+      let persisted: string | null = null
+      let deliverResponse!: (response: Response) => void
+      const pendingResponse = new Promise<Response>((resolve) => {
+        deliverResponse = resolve
+      })
+      const fetcher = vi.fn<typeof fetch>()
+      fetcher
+        .mockResolvedValueOnce(new Response(JSON.stringify({ id: '123' }), { status: 201 }))
+        .mockImplementationOnce(() => pendingResponse)
+      const client = new PixaiClient(() => 'synthetic-test-key', fetcher)
+      const io = {
+        read: () => persisted,
+        write: (text: string) => {
+          persisted = text
+        },
+        create: (value: ExecutionJob) => client.create(value.payload),
+        task: (id: string) => client.task(id),
+        save: vi.fn(async (): Promise<SavedMedia> => ({ path: '/output/unexpected.png' })),
+        sleep: vi.fn(async () => {})
+      }
+      const runner = new PixaiRunner(io)
+      const second = job('job2')
+      second.request.configuration.loras = Array.from({ length: 7 }, (_, index) => ({
+        id: String(30 + index),
+        versionId: String(300 + index),
+        name: `LoRA ${index + 1}`,
+        weight: 0.5
+      }))
+      const expectedLoras = second.request.configuration.loras.map((lora) => ({
+        modelId: lora.versionId,
+        weight: lora.weight,
+        triggerWords: ''
+      }))
+      expect(() => runner.start([job(), second, job('job3')], '/output', 3)).not.toThrow()
+      await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2))
+      expect(runner.status().running).toBe(true)
+      expect(runner.status().jobs.map((value) => value.state)).toEqual([
+        'waiting',
+        'submitting',
+        'queued'
+      ])
+      expect(runner.status().jobs[0].taskId).toBe('123')
+      expect(fetcher.mock.calls[1][0]).toBe('https://api.pixai.art/v2/image/create')
+      expect(fetcher.mock.calls[1][1]?.method).toBe('POST')
+      expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body)).loras).toEqual(expectedLoras)
+      deliverResponse(new Response('synthetic rejection', { status: httpStatus }))
+      await finished(runner)
+      const status = runner.status()
+      expect(status.running).toBe(false)
+      expect(status.error).toContain('생성 요청을 중단')
+      expect(status.jobs.map((value) => value.state)).toEqual([
+        'waiting',
+        httpStatus === 500 ? 'submission_unknown' : 'failed',
+        'queued'
+      ])
+      expect(status.jobs[1].error).toContain(`공식 API 오류 (${httpStatus})`)
+      expect(status.jobs[1].taskId).toBeUndefined()
+      expect(status.jobs[2].taskId).toBeUndefined()
+      expect(fetcher).toHaveBeenCalledTimes(2)
+      expect(io.save).not.toHaveBeenCalled()
+      expect(io.sleep).not.toHaveBeenCalled()
+      const reopened = new PixaiRunner(io).status()
+      expect(reopened.running).toBe(false)
+      expect(reopened.jobs).toEqual(status.jobs)
+      expect(reopened.jobs[0]).toMatchObject({ state: 'waiting', taskId: '123' })
+      expect(reopened.jobs[2].state).toBe('queued')
+      expect(fetcher).toHaveBeenCalledTimes(2)
+    }
+  )
+  it.each(['failed', 'cancelled'])(
+    'stops after the server task reports %s without submitting the next queued job',
+    async (taskStatus) => {
+      let persisted: string | null = null
+      const fetcher = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ id: '123' }), { status: 201 }))
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ id: '123', status: taskStatus }), { status: 200 })
+        )
+      const client = new PixaiClient(() => 'synthetic-test-key', fetcher)
+      const io = {
+        read: () => persisted,
+        write: (text: string) => {
+          persisted = text
+        },
+        create: (value: ExecutionJob) => client.create(value.payload),
+        task: (id: string) => client.task(id),
+        save: vi.fn(async (): Promise<SavedMedia> => ({ path: '/output/unexpected.png' })),
+        sleep: vi.fn(async () => {})
+      }
+      const runner = new PixaiRunner(io)
+      runner.start([job(), job('job2'), job('job3')], '/output', 1)
+      await finished(runner)
+      const status = runner.status()
+      expect(status.running).toBe(false)
+      expect(status.jobs.map((value) => value.state)).toEqual(['failed', 'queued', 'queued'])
+      expect(status.jobs[0]).toMatchObject({ state: 'failed', taskId: '123' })
+      expect(status.jobs[0].error).toContain('서버가 생성 실패 또는 취소를 보고')
+      expect(status.jobs[1].taskId).toBeUndefined()
+      expect(status.jobs[2].taskId).toBeUndefined()
+      expect(fetcher.mock.calls.map(([url, options]) => [url, options?.method])).toEqual([
+        ['https://api.pixai.art/v2/image/create', 'POST'],
+        ['https://api.pixai.art/v1/task/123', 'GET']
+      ])
+      expect(io.save).not.toHaveBeenCalled()
+      expect(new PixaiRunner(io).status().jobs).toEqual(status.jobs)
+      expect(fetcher).toHaveBeenCalledTimes(2)
+    }
+  )
   it('never sends credentials to image hosts and rejects redirects/untrusted URLs', async () => {
     const fetcher = vi.fn(
       async () => new Response(new Uint8Array([1]), { headers: { 'content-type': 'image/png' } })
