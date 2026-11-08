@@ -161,6 +161,44 @@ it('shows merged sources, updates with character selection and freezes a reserva
   )
 })
 
+it.each(['compose', 'scene'] as const)(
+  'allows more than five LoRAs in %s preview and freezes every item when reserving',
+  async (screen) => {
+    const additions = Array.from({ length: 8 }, (_, i) => ({
+      ...characterLora,
+      id: String(30 + i),
+      versionId: String(300 + i),
+      name: `Character LoRA ${i + 1}`,
+      triggerWords: `character-trigger-${i + 1}`
+    }))
+    await attach(additions)
+    const expected = [...store.getState().workspace.library.presets[0].loras, ...additions]
+    if (screen === 'compose') {
+      await act(async () => root.render(h(TestCompose)))
+      expect(button('이 조합 예약 추가').disabled).toBe(false)
+      expect(preview()).toContain('character-trigger-8')
+      await click('이 조합 예약 추가')
+    } else {
+      await act(async () => root.render(h(Scenes, { store, onOpen: vi.fn() })))
+      await click('캐릭터 폴더 미분류')
+      await act(async () => field('행 Alice').click())
+      await act(async () => field('씬 웃음').click())
+      expect(button('선택 조합 전부 예약').disabled).toBe(false)
+      expect(
+        container.querySelector('[aria-label="씬 조합 포지티브 미리보기"]')!.textContent
+      ).toContain('character-trigger-8')
+      await click('선택 조합 전부 예약')
+    }
+    expect(container.querySelector('[aria-label="최종 적용 LoRA"]')!.textContent).toContain('9개')
+    const restored = readWorkspace(saved)
+    expect(restored.library.reservations[0].snapshot!.preset.loras).toEqual(expected)
+    const request = expandReservations(restored.library)[0]
+    expect(buildPayload({ request, options: restored.options, imageCount: 4 }, 1).loras).toEqual(
+      expected.map((item) => ({ modelId: item.versionId, weight: item.weight, triggerWords: '' }))
+    )
+  }
+)
+
 it('blocks conflicting or API-invalid merged LoRAs with visible errors and no reservation writes', async () => {
   const style = store.getState().workspace.library.presets[0].loras[0]
   await attach([{ ...style, weight: 0.9 }])

@@ -389,7 +389,7 @@ export function normalizeCharacterLoras(value: unknown): LoraRef[] {
 
 export type LoraSource = 'preset' | 'character' | 'both'
 
-/** 저장용 합성만 수행한다. 공식 API의 0~1/버전 필수/5개 제한은 전송 전 별도 검사한다. */
+/** 저장용 합성만 수행한다. 전송용 수치·버전 ID 검사는 별도로 수행한다. */
 export function mergeCharacterLoras(
   presetLoras: LoraRef[],
   characterLoras?: LoraRef[]

@@ -263,3 +263,54 @@ it('reconstructs a complete PixAI model/LoRA preset and preserves frozen reserva
   })
   expect(workspace.library).toEqual(before)
 })
+it('roundtrips twelve LoRAs through PNG metadata, composition import and a new request without truncation', async () => {
+  const source = job()
+  source.payload.loras = Array.from({ length: 12 }, (_, index) => ({
+    modelId: String(300 + index),
+    weight: index / 12,
+    triggerWords: ''
+  }))
+  source.metadataReferences!.loraModelIds = Array.from({ length: 12 }, (_, index) =>
+    String(30 + index)
+  )
+  const expected = source.payload.loras.map((lora, index) => ({
+    id: source.metadataReferences!.loraModelIds[index],
+    versionId: lora.modelId,
+    weight: lora.weight
+  }))
+  const original = await png()
+  const recorded = embedGenerationInfo(original, source, '11')
+  const info = await readImageInfo(recorded)
+  expect(info.sources[0].fields.loras).toEqual(expected)
+  expect(await sharp(recorded).raw().toBuffer()).toEqual(await sharp(original).raw().toBuffer())
+  const workspace = { ...emptyWorkspace(), library: pixaiLibrary() }
+  const before = structuredClone(workspace)
+  const next = importImageComposition(
+    workspace,
+    info.sources[0].fields,
+    { ...noImageSelection(), prompt: true, negativePrompt: true, model: true },
+    'twelve-loras'
+  )
+  const restored = readWorkspace(JSON.stringify(next))
+  const draft = restored.composeDraft!
+  expect(restored.library.presets.find((preset) => preset.id === draft.presetId)?.loras).toEqual(
+    expected.map((lora) => ({ ...lora, name: '' }))
+  )
+  restored.library.reservations = [
+    {
+      id: 'roundtrip',
+      presetId: draft.presetId,
+      characterId: draft.characterId,
+      sceneIds: draft.sceneIds,
+      count: 1
+    }
+  ]
+  const request = expandReservations(restored.library)[0]
+  expect(buildPayload({ request, imageCount: 4, options: restored.options }, 42).loras).toEqual(
+    source.payload.loras
+  )
+  expect(workspace).toEqual(before)
+  const invalid = structuredClone(expected)
+  invalid[11].weight = 2
+  expect(imageInfoFields({ loras: invalid })).not.toHaveProperty('loras')
+})

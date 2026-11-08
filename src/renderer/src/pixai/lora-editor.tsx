@@ -28,8 +28,8 @@ export function LoraEditor({
       </summary>
       {character && (
         <p className="px-hint">
-          이 캐릭터를 고르면 프리셋의 LoRA와 함께 적용됩니다. 합쳐서 최대 5개이며, 같은 LoRA의
-          버전·수치·트리거가 다르면 예약 전에 알려드립니다.
+          이 캐릭터를 고르면 프리셋의 LoRA와 함께 적용됩니다. 같은 LoRA의 버전·수치·트리거가 다르면
+          예약 전에 알려드립니다.
         </p>
       )}
       {value.map((lora, index) => (

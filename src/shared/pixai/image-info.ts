@@ -43,7 +43,6 @@ export function imageInfoFields(value: unknown): ImageInfoFields {
   if (typeof p.modelId === 'string' && /^\d{1,40}$/.test(p.modelId)) out.modelId = p.modelId
   if (
     Array.isArray(p.loras) &&
-    p.loras.length <= 5 &&
     p.loras.every(
       (v) =>
         v &&

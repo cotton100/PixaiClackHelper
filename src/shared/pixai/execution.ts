@@ -134,8 +134,7 @@ export function numericId(value: unknown): string {
   return value
 }
 export function validateApiLoras(loras: LoraRef[]): ApiPayload['loras'] {
-  if (!Array.isArray(loras) || loras.length > 5)
-    throw new Error('모델과 LoRA(최대 5개)를 확인해 주세요.')
+  if (!Array.isArray(loras)) throw new Error('LoRA 목록 형식을 확인해 주세요.')
   const seen = new Set<string>()
   return loras.map((lora) => {
     const modelId = numericId(lora.versionId)
@@ -161,8 +160,7 @@ export function buildPayload(job: QueuedJob, randomSeed: number): ApiPayload {
     throw new Error('생성당 이미지 수를 1장 또는 4장으로 정한 뒤 대기열에 다시 등록해 주세요.')
   if (!job.request.prompt?.trim()) throw new Error('프롬프트가 비어 있습니다.')
   const config = job.request.configuration
-  if (!config || !Array.isArray(config.loras) || config.loras.length > 5)
-    throw new Error('모델과 LoRA(최대 5개)를 확인해 주세요.')
+  if (!config || !Array.isArray(config.loras)) throw new Error('모델과 LoRA 목록을 확인해 주세요.')
   const seed = api.seed === '' || api.seed === undefined ? randomSeed : Number(api.seed)
   if (!Number.isInteger(seed) || seed < 0 || seed > 4294967295)
     throw new Error('시드 범위를 확인해 주세요.')

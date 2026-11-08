@@ -226,13 +226,12 @@ describe('character LoRAs in reservations and jobs', () => {
     expect(JSON.stringify(value)).toBe(before)
   })
 
-  it.each(['missing-version', 'weight', 'six-loras'] as const)(
+  it.each(['missing-version', 'weight'] as const)(
     'reports %s before making a character-LoRA batch reservation',
     (failure) => {
       const value = library()
       if (failure === 'missing-version') delete value.characters[0].loras![0].versionId
-      else if (failure === 'weight') value.characters[0].loras![0].weight = 1.2
-      else value.characters[0].loras = ['31', '32', '33', '34', '35'].map((id) => lora(id))
+      else value.characters[0].loras![0].weight = 1.2
       const expanded = expandBatchPlan(value, plan())
       expect(expanded.reservations).toEqual([])
       expect(expanded.problems).toEqual([
@@ -328,15 +327,27 @@ describe('character LoRAs in reservations and jobs', () => {
     expect(() => buildPayload({ request, imageCount: 4, options }, 7)).toThrow('ID')
   })
 
-  it('counts final distinct LoRAs at the API boundary without counting a shared entry twice', () => {
+  it('keeps more than five distinct LoRAs in batch snapshots, backups and final payloads', () => {
     const value = library()
     value.presets[0].loras = [lora('20'), lora('21'), lora('22')]
-    value.characters[0].loras = [lora('20'), lora('31'), lora('32')]
-    value.reservations = [reservation()]
-    const [request] = expandReservations(value, { idFactory: ids() })
-    expect(buildPayload({ request, imageCount: 4, options }, 7).loras).toHaveLength(5)
-    request.configuration.loras.push(lora('33'))
-    expect(() => buildPayload({ request, imageCount: 4, options }, 7)).toThrow('5개')
+    value.characters[0].loras = [
+      lora('20'),
+      ...['31', '32', '33', '34', '35', '36'].map((id) => lora(id))
+    ]
+    const expected = ['20', '21', '22', '31', '32', '33', '34', '35', '36'].map((id) => lora(id))
+    const expanded = expandBatchPlan(value, plan(), { idFactory: ids() })
+    expect(expanded.problems).toEqual([])
+    const reserved = appendBatchReservations(value, expanded)
+    expect(reserved.reservations[0].snapshot!.preset.loras).toEqual(expected)
+    value.characters[0].loras = []
+    const restored = parseSettingsBackup(
+      JSON.stringify(makeSettingsBackup(reserved, options, meta))
+    )
+    const [request] = expandReservations(restored.library, { idFactory: ids() })
+    expect(request.configuration.loras).toEqual(expected)
+    expect(buildPayload({ request, imageCount: 4, options }, 7).loras).toEqual(
+      expected.map((item) => ({ modelId: item.versionId, weight: item.weight, triggerWords: '' }))
+    )
   })
 })
 
